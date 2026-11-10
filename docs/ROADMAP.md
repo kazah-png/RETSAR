@@ -1,58 +1,61 @@
-# Hoja de ruta
+# Roadmap
 
-RETSAR persigue dos puestos Windows independientes con asignación explícita de pantalla y entrada. Esta hoja de ruta usa criterios de aceptación; no representa un porcentaje de avance ni promete una fecha de entrega.
+RETSAR aims to provide two independent Windows seats with explicit display and input assignments. This roadmap uses acceptance criteria; it is not a completion percentage or a delivery schedule.
 
-## Base disponible · 0.2.0-engine-preview
+## Available foundation · 0.2.0-engine-preview
 
-- [x] Inventario de solo lectura y salida JSON.
-- [x] Validación de configuraciones y rechazo de asignaciones duplicadas.
-- [x] Planes temporales, reservas y tokens de un solo uso.
-- [x] Intenciones persistentes antes de adquirir o liberar recursos.
-- [x] Recibos de propiedad y compensación en orden inverso.
-- [x] Recuperación conservadora tras reiniciar y resultados inciertos.
-- [x] Pruebas con proveedor simulado separado del ejecutable público.
-- [x] Compilación y pruebas automatizables en Windows.
+- [x] Read-only inventory and JSON output.
+- [x] Configuration validation and rejection of duplicate assignments.
+- [x] Temporary plans, reservations and single-use tokens.
+- [x] Durable intent before acquiring or releasing resources.
+- [x] Ownership receipts and compensation in reverse order.
+- [x] Conservative restart recovery and uncertain-outcome handling.
+- [x] Simulated provider isolated from the public executable.
+- [x] Automated Windows build and tests.
+- [x] Separate laboratory probe with pure argument and session-gate tests.
 
-La base completa no equivale a un puesto funcional. El siguiente hito es la dependencia crítica del proyecto.
+A completed foundation does not amount to a functional seat. The next milestone is the project's critical dependency.
 
-## P0 · Demostrar un puesto nativo en un entorno de prueba
+## P0 · Demonstrate a native seat in an independent laboratory
 
-- [ ] Identificar y documentar un mecanismo viable para crear una sesión interactiva nueva.
-- [ ] Demostrar su identidad y ciclo de vida sin depender de una sesión ya creada por otro producto.
-- [ ] Asignar una salida física y entrada independientes sin apropiarse de recursos existentes.
-- [ ] Retirar únicamente los recursos de la prueba, también ante fallos intermedios.
-- [ ] Reproducir el resultado y dejar evidencia revisable del entorno y sus limitaciones.
+- [ ] Identify and document a viable mechanism to create a new interactive session.
+- [ ] Demonstrate its identity and lifecycle without relying on a session already created by another product.
+- [ ] Assign an independent physical output and input without taking over existing resources.
+- [ ] Remove only the experiment's resources, including after intermediate failures.
+- [ ] Reproduce the result and retain reviewable evidence of the environment and limitations.
 
-**Criterio de aceptación:** una prueba aislada crea y retira un segundo puesto real, preserva el primero y permite verificar a qué ejecución pertenece cada recurso. Lanzar un proceso en otra sesión o mostrar una captura no satisface este criterio.
+**Acceptance criterion:** an isolated experiment creates and removes a real second seat, preserves the first, and proves which run owns each resource. Launching a process in another session or displaying a captured image does not satisfy this criterion.
 
-## P1 · Integrar el proveedor Windows
+The [native backend investigation](NATIVE-BACKEND.md) separates protocol research from this physical-seat requirement.
 
-- [ ] Implementar el contrato `SeatExecutor` con comprobaciones de propiedad atómicas.
-- [ ] Vincular pantalla y entrada a la sesión exacta creada por la misma transacción.
-- [ ] Hacer idempotentes las operaciones y consultar sus resultados tras una caída.
-- [ ] Invalidar planes ante interferencias externas sin invalidar los efectos propios de la transacción.
-- [ ] Pasar pruebas de recursos ajenos, IDs reutilizados, pérdidas de respuesta y reinicios del proveedor.
+## P1 · Integrate the Windows provider
 
-**Criterio de aceptación:** el proveedor real satisface los mismos invariantes de seguridad que exige el núcleo. Las pruebas simuladas se conservan; no sustituyen las del proveedor real.
+- [ ] Implement the `SeatExecutor` contract with atomic ownership checks.
+- [ ] Bind display and input to the exact session created by the same transaction.
+- [ ] Make operations idempotent and queryable after a crash.
+- [ ] Invalidate plans on external interference without invalidating the transaction's own effects.
+- [ ] Pass tests for foreign resources, reused IDs, lost replies and provider restarts.
 
-## P2 · Uso supervisado
+**Acceptance criterion:** the real provider satisfies the ownership and recovery invariants required by the core. Simulated tests remain useful; they do not replace real-provider tests.
 
-- [ ] Resolver la selección y conmutación de teclado/ratón entre puestos.
-- [ ] Añadir una interfaz de configuración que refleje el estado real del motor.
-- [ ] Diseñar instalación, retirada y actualizaciones de los componentes que finalmente sean necesarios.
-- [ ] Probar recursos compartidos, suspensión, desconexiones y errores de aplicaciones.
+## P2 · Supervised use
 
-**Criterio de aceptación:** se pueden preparar, iniciar, detener y revisar dos puestos con procedimientos de recuperación claros y sin configuraciones ocultas.
+- [ ] Resolve keyboard/mouse selection and switching between seats.
+- [ ] Add a configuration interface that reflects the engine's real state.
+- [ ] Design installation, removal and updates for whatever components prove necessary.
+- [ ] Test shared resources, suspension, disconnections and application failures.
 
-## P3 · Estabilidad y distribución
+**Acceptance criterion:** two seats can be prepared, started, stopped and inspected with clear recovery procedures and no hidden configuration.
 
-- [ ] Ejecutar pruebas prolongadas y medir CPU, memoria y GPU.
-- [ ] Documentar versiones de Windows y hardware realmente comprobados.
-- [ ] Resolver crecimiento y mantenimiento del diario sin perder propiedad pendiente.
-- [ ] Revisar empaquetado, procedencia del código y reproducibilidad de las entregas.
+## P3 · Stability and distribution
 
-No se anuncia compatibilidad con aplicaciones o juegos concretos hasta contar con pruebas reales. Las futuras afirmaciones de rendimiento deben incluir condiciones y medidas.
+- [ ] Run prolonged tests and measure CPU, memory and GPU use.
+- [ ] Document Windows versions and hardware actually tested.
+- [ ] Address journal growth and maintenance without losing pending ownership.
+- [ ] Review packaging, code provenance and reproducibility of releases.
 
-## Cómo actualizar esta hoja
+Do not announce support for particular applications or games until it has been tested. Performance claims must include conditions and measurements.
 
-Marca un punto como terminado solo cuando exista código revisable o evidencia reproducible que cumpla su criterio. Añade el resultado al [progreso](PROGRESS.md), incluyendo pruebas omitidas y limitaciones. Un diseño o una interfaz simulada no debe registrarse como funcionalidad nativa terminada.
+## Updating this roadmap
+
+Mark an item complete only when reviewable code or reproducible evidence meets its criterion. Record the result in [PROGRESS.md](PROGRESS.md), including skipped cases and remaining limits. A design or simulated interface must not be recorded as completed native functionality.

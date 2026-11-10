@@ -1,77 +1,91 @@
-# Progreso verificable
+# Verified progress
 
-## 10 de noviembre de 2026 · Base transaccional 0.2.0-engine-preview
+Progress is organized by capability and evidence. A compiled component, simulated transaction or existing session ID is not recorded as an operational native seat.
 
-Esta es la validación local inicial, anterior al instrumento de laboratorio. No se reconstruye un historial de lanzamientos ni se presenta una prueba simulada como un puesto operativo.
+## Evidence summary · 0.2.0-engine-preview
 
-| Comprobación | Resultado local |
-| --- | --- |
-| Modelo, validaciones y capacidades | 25 aprobadas |
-| Ciclo de vida, diario y recuperación | 57 aprobadas |
-| Contratos del CLI y salida de archivos | 6 aprobadas |
-| **Total de comprobaciones** | **88 aprobadas, 0 fallidas** |
-| JSON interpretado de forma independiente por PowerShell | Aprobado, adicional al total anterior |
-| Rama adversarial de sustitución mediante junction | **1 no ejercitada** |
-| Compilación x64, C++17, `/W4 /WX` | Terminada sin errores |
+| Check | Recorded local result | Recorded public CI result |
+| --- | --- | --- |
+| Model, validation and capabilities | 25 passed | 25 passed |
+| Lifecycle, journal and recovery | 57 passed | 58 passed |
+| CLI contracts and file output | 6 passed | 6 passed |
+| Laboratory probe argument/session-gate tests | 29 passed | 29 passed |
+| **Total** | **117 passed, 0 failed** | **118 passed, 0 failed** |
+| Independent JSON parsing by PowerShell | Passed, additional to the total | Passed, additional to the total |
+| Adversarial junction branch | **1 not exercised** | Exercised and included among lifecycle passes |
+| x64 C++17 build with `/W4 /WX` | Passed | Passed |
+| Probe interactive mode | **Not run** | **Not run** |
 
-La prueba adversarial intentó modificar una carpeta temporal propia de C: para convertirla en una junction hacia otra carpeta temporal propia de C:. Windows rechazó la modificación con código **5 — acceso denegado**. Por ello no se comprobó dinámicamente la rama en la que la conversión llega a completarse. No cuenta como aprobada.
+Public evidence: [Windows CI run 42795998244](https://github.com/kazah-png/RETSAR/actions/runs/42795998244), commit [`27893ecee2b825c5d03d99b8f5b2180043713736`](https://github.com/kazah-png/RETSAR/commit/27893ecee2b825c5d03d99b8f5b2180043713736). These results describe that tested revision; they do not automatically validate later changes.
 
-## Qué se comprobó
+The local adversarial test tried to convert its own temporary directory on C: into a junction targeting another temporary directory on C:. Windows rejected the mutation with error **5 — access denied**, so the redirected-child branch was not exercised locally and is not counted as passed. CI allowed the experiment and verified the branch, accounting for the one-check difference.
 
-- Exclusión de escritores del diario, incluida una prueba entre dos procesos.
-- Rechazo de corrupción, registros parciales, secuencias inválidas y reapertura accidental de un diario inexistente.
-- Reserva de recursos, límites de configuración, tokens alterados o caducados y cambios externos de inventario.
-- Arranque y compensación con el proveedor simulado; vínculos a la sesión exacta del mismo propietario.
-- Resultados inciertos, fallos de escritura, pérdida de recibos, reinicio del motor e IDs de recursos reutilizados.
-- Recuperación de solo lectura y presentación conservadora de estados históricos.
-- Escritura del esquema RETSAR y lectura del identificador anterior sin reescribir el diario.
-- Estado del proveedor Windows bloqueado y archivos nuevos del CLI sin sobrescritura.
+## Milestone: transactional foundation
 
-El ejecutable público se compiló con el núcleo transaccional. El proveedor simulado solo se compiló para las pruebas. No se ejecutó inventario de dispositivos ni se crearon o modificaron puestos Windows durante esta suite.
+**Status: implemented and tested with an explicit simulated provider.**
 
-## Qué no demuestra este resultado
+Evidence covers:
 
-- Creación de un segundo puesto Windows real.
-- Separación de pantallas o de eventos de entrada entre usuarios.
-- Funcionamiento de aplicaciones concretas, varias cuentas simultáneas o estabilidad prolongada.
-- Recuperación frente a cualquier combinación de corte eléctrico, fallo de hardware o modificación maliciosa del diario.
+- Exclusive journal writers, including a separate-process test.
+- Rejection of corruption, partial records, invalid sequences and accidental initialization of a missing journal.
+- Reservations, configuration bounds, altered or expired tokens and external inventory changes.
+- Simulated startup and reverse compensation, with bindings tied to the exact session owned by the run.
+- Uncertain outcomes, write failures, lost receipts, engine restarts and reused resource IDs.
+- Read-only reconciliation and conservative presentation of historical states.
+- Writing the RETSAR schema and reading the former identifier without rewriting the journal.
+- Blocked native Windows capabilities and creation-only CLI output.
 
-## Reproducir
+The public executable is linked with the transactional core. The simulated provider is compiled only into tests. This suite does not inventory host devices or create or modify Windows seats.
 
-En una carpeta ordinaria de C:, con los requisitos de [compilación](../README.md#empezar):
+## Milestone: laboratory observation instrument
+
+**Status: instrument compiled; pure tests and help verified; interactive execution pending.**
+
+`RETSAR-seat-probe` is separate from the main executable. Its 29 pure checks cover arguments and the gate comparing the declared candidate and reference sessions. The build invokes only its help; it has not opened the probe window or exercised D3D11 creation in a laboratory session.
+
+The instrument declares `createdSession=false` and `independenceNotProven=true`. It requires manual window activation and counts messages without treating their presence as proof of origin. Its design and limits are documented in [NATIVE-BACKEND.md](NATIVE-BACKEND.md#c-laboratory-instrument).
+
+Compiling the probe does not validate its interactive window, graphics device, event routing or real-session report.
+
+## Milestone: native session research
+
+**Status: candidate interfaces identified; no operational provider demonstrated.**
+
+Static analysis identified coordination of existing sessions, communication with a driver and process launch within a specified session. The investigated indirect call resolved to an update of the active-console identifier. That path did not provide a verified contract for creating a new independent interactive session. It also does not establish that such creation is impossible through other mechanisms.
+
+Those investigated operations were not executed and system sessions were not modified. This behavioral summary includes no proprietary binaries, decompilations or private protocols. It adds no test passes and establishes no native Windows capability.
+
+The [native backend investigation](NATIVE-BACKEND.md) identifies a public RDS protocol-provider candidate and separates its laboratory acceptance gates from the physical-seat requirement. The remaining step is to validate a mechanism that creates a new interactive session, proves ownership, preserves the reference seat and removes only the created instance.
+
+## Milestone: reproducible public build
+
+**Status: public Windows CI passed at the linked revision.**
+
+[Windows CI](../.github/workflows/windows.yml) copies the required sources, tests and build script to a verified temporary directory on C: to preserve the engine's file policy. It compiles the engine and laboratory instrument, runs pure tests and CLI checks, and invokes only the probe's help.
+
+The SDK selection checks for the required UCRT headers, x64 libraries and manifest tool before choosing an installed version. A previous CI build exposed an incomplete SDK directory; the passing run validates the corrected selection in that environment.
+
+The workflow badge refers to CI for its specific revision. It is not a native-seat readiness indicator.
+
+## Reproducing the checks
+
+From an ordinary directory on C:, with the [build prerequisites](../README.md#getting-started):
 
 ```powershell
-.\build.ps1 -Test
+.\build.ps1 -Test -Lab
 ```
 
-La suite imprime cada resultado y distingue las ramas omitidas. Los artefactos temporales se crean en `build/`; los informes del CLI, en `reports/`. Esas carpetas no forman parte del código publicado. El JSON de validación del CLI incluye el hash del ejecutable local comprobado.
+The suite prints individual outcomes and identifies unexercised branches. Temporary artifacts are written under `build/` and CLI reports under `reports/`; those directories are not published source. The CLI validation report includes the hash of the checked local executable.
 
-## Automatización pública
+## Unverified capabilities
 
-[Windows CI](../.github/workflows/windows.yml) compila y ejecuta la misma suite en un entorno alojado por GitHub. Copia únicamente fuentes, pruebas y script de compilación a una carpeta temporal verificada de C: para respetar la restricción de archivos del motor.
+The available evidence does not establish:
 
-La incorporación del flujo no equivale a una ejecución aprobada: los resultados públicos se consultan en la pestaña **Actions**. La evidencia local anterior se mantiene separada de los futuros resultados de CI.
+- Creation of a second real Windows seat.
+- Independent physical displays or input routing between users.
+- Support for specific applications, simultaneous accounts or prolonged operation.
+- Recovery from every combination of power loss, hardware failure or malicious journal changes.
 
-## Investigación de sesiones del 10 de noviembre
+The next acceptance milestone is [P0](ROADMAP.md): an independent laboratory demonstrates a real second seat with verifiable ownership, safe teardown and preservation of the existing seat. Native capabilities remain `NOT_IMPLEMENTED` until the necessary evidence exists.
 
-El análisis estático identificó coordinación de sesiones existentes, comunicación con un controlador e inicio de procesos dentro de una sesión indicada. La llamada indirecta investigada se resolvió como una actualización del identificador de consola activa. Esta rama no aportó un contrato verificado para crear una nueva sesión interactiva independiente; el hallazgo tampoco demuestra que esa creación sea imposible por otras vías.
-
-No se ejecutaron las operaciones investigadas ni se modificaron sesiones del sistema. Este resumen describe el comportamiento observado; no incorpora binarios, descompilaciones ni protocolos privados al proyecto. La investigación no añade comprobaciones al total de 88 ni acredita capacidades operativas de Windows.
-
-Para avanzar falta identificar y validar, en un entorno independiente, una operación que cree una sesión interactiva con identidad y propiedad comprobables, mantenga operativo el puesto existente y permita retirar únicamente la instancia creada.
-
-## Próximo punto de control
-
-Demostrar el [hito P0](ROADMAP.md): un segundo puesto real en un entorno de prueba independiente, con propiedad verificable, retirada segura y preservación del puesto existente. Mientras no se alcance, las capacidades nativas siguen marcadas como `NOT_IMPLEMENTED`.
-
-## 10 de noviembre de 2026 · Sonda de laboratorio y publicación
-
-Se añadió `RETSAR-seat-probe`, separado del ejecutable principal. La compilación `build.ps1 -Test -Lab` terminó con **117 comprobaciones locales aprobadas, 0 fallidas**, JSON externo validado y una rama de junction no ejercitada. El incremento respecto a la base es de **29 pruebas puras** de argumentos y de la condición que compara las sesiones declaradas.
-
-La sonda compiló con `/W4 /WX` y se ejecutó únicamente su ayuda. **No se ejecutó su modo interactivo**, no se abrió su ventana y no se probó la creación de D3D11 en esta fase. Su informe declara que no creó una sesión y que la independencia no está probada. La revisión eliminó una posible activación involuntaria de ventana y aclaró que contar mensajes no verifica su origen.
-
-La primera ejecución pública de CI detectó una selección incorrecta del SDK: una carpeta de versión no contenía `crtdbg.h`. El script ahora exige cabeceras UCRT, bibliotecas x64 y herramienta de manifiesto antes de seleccionar una versión. La [segunda ejecución pública](https://github.com/kazah-png/RETSAR/actions/runs/42794971422), sobre el commit `96cc60ce09b44f6c245b1df4b67bfbe8eba9edd4`, aprobó **89 comprobaciones de la base**: 25 del modelo, 58 de ciclo de vida y 6 CLI, más el JSON independiente. En ese entorno de GitHub sí se ejercitó y aprobó la rama de junction; no cambia el resultado omitido en el equipo local.
-
-El workflow ampliado compila la sonda y ejecuta sus pruebas puras y ayuda, sin modo interactivo. Su resultado debe consultarse para el commit concreto; no se infiere del resultado anterior.
-
-Seguimiento abierto: [crear una sesión propia](https://github.com/kazah-png/RETSAR/issues/1) y [demostrar pantalla/entrada independientes](https://github.com/kazah-png/RETSAR/issues/2). El hito P0 sigue pendiente y el proveedor Windows permanece bloqueado.
+Open tracking: [create an owned session](https://github.com/kazah-png/RETSAR/issues/1) and [demonstrate independent display/input](https://github.com/kazah-png/RETSAR/issues/2).

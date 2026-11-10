@@ -1,90 +1,94 @@
-# Investigación del proveedor nativo
+# Native provider investigation
 
-Estado de la revisión: **10 de noviembre de 2026**. Este documento define una investigación y sus pruebas de aceptación. No describe un proveedor operativo ni instrucciones para instalar componentes en un equipo de uso diario.
+This document defines a research direction and its acceptance tests. It does not describe an operational provider or installation instructions for an everyday computer.
 
-**RETSAR todavía no dispone de un mecanismo validado para crear un segundo puesto simultáneo en Windows 11 con pantalla y entrada independientes.** La falta de una implementación comprobada no demuestra que cualquier implementación sea técnicamente imposible. El núcleo transaccional permanece separado de esa cuestión: sus pruebas no acreditan creación de sesiones.
+**RETSAR has no validated mechanism for creating a second simultaneous Windows 11 seat with independent display and input.** The absence of a proven implementation does not establish that every possible implementation is technically impossible. The transactional core is separate from that question: its tests do not prove session creation.
 
-## Candidato con interfaces y código públicos
+## Candidate with public interfaces and source
 
-Microsoft publica [Remote Desktop Services Protocol Sample](https://github.com/Azure/Remote-Desktop-Services-Protocol-Sample), un ejemplo con licencia MIT para implementar un proveedor de protocolo RDS. Su solución C++/ATL está en `Sample/TestProtocol_Ext.sln`. El proveedor entrega conexiones a RDS y puede participar en la asociación de dispositivos de entrada y de un controlador de pantalla indirecta a una sesión. No es una implementación multiseat completa.
+Microsoft publishes [Remote Desktop Services Protocol Sample](https://github.com/Azure/Remote-Desktop-Services-Protocol-Sample), an MIT-licensed example of an RDS protocol provider. Its C++/ATL solution is `Sample/TestProtocol_Ext.sln`. The provider submits connections to RDS and can participate in associating input devices and an indirect display driver with a session. It is not a complete multiseat implementation.
 
-El [README del ejemplo](https://github.com/Azure/Remote-Desktop-Services-Protocol-Sample/blob/main/README.md) advierte que las ediciones cliente contempladas admiten una sola sesión activa y orienta los escenarios concurrentes a Windows Server con RDSH o a Enterprise multi-session. La documentación de [IWRdsProtocolManager](https://learn.microsoft.com/en-us/windows/win32/api/wtsprotocol/nn-wtsprotocol-iwrdsprotocolmanager) declara Windows Server 2012 como servidor mínimo y ningún cliente Windows compatible. La presencia de una DLL o de estas interfaces en un equipo no acredita que la edición permita el escenario buscado.
+The [sample README](https://github.com/Azure/Remote-Desktop-Services-Protocol-Sample/blob/main/README.md) states that the client editions it discusses support one active session and directs concurrent scenarios toward Windows Server with RDSH or Enterprise multi-session. The [IWRdsProtocolManager documentation](https://learn.microsoft.com/en-us/windows/win32/api/wtsprotocol/nn-wtsprotocol-iwrdsprotocolmanager) lists Windows Server 2012 as the minimum supported server and no supported Windows client. The presence of a DLL or these interfaces does not establish that the installed edition supports the intended scenario.
 
-### Secuencia que debe implementar y observar el laboratorio
+### Sequence the laboratory must implement and observe
 
-| Interfaz o evento | Función verificable | Lo que no acredita por sí solo |
+| Interface or event | Verifiable function | What it does not establish on its own |
 | --- | --- | --- |
-| `IWRdsProtocolManager::CreateListener` | RDS solicita el objeto que atenderá conexiones. | Una sesión creada o conectada. |
-| `IWRdsProtocolListener::StartListen` | Entrega el callback de RDS al proveedor. | Disponibilidad de pantalla o entrada. |
-| `IWRdsProtocolListenerCallback::OnConnected` | Comunica una conexión entrante e inicia su procesamiento por RDS. | Que se haya concedido una sesión nueva y simultánea. |
-| `IWRdsProtocolConnectionCallback::OnReady` | Comunica que la conexión está preparada para continuar. | Inicio de sesión completado. |
-| `IWRdsProtocolConnection::NotifySessionId` | Informa de la sesión asociada a la conexión; la asociación puede cambiar. | Propiedad permanente de un ID numérico. |
-| `IWRdsProtocolConnection::LogonNotify` | Notifica el inicio de sesión del usuario. | Aislamiento de salida o entrada. |
-| `IWRdsWddmIddProps::GetHardwareId` / `OnDriverLoad` | Selecciona el IDD y recibe la notificación de su carga. | Control exclusivo de una salida física. |
-| `IWRdsProtocolConnection::GetInputHandles` | Proporciona los handles de entrada que consume la pila. | Que los dispositivos estén correctamente aislados. |
+| `IWRdsProtocolManager::CreateListener` | RDS requests the object that will handle connections. | A created or connected session. |
+| `IWRdsProtocolListener::StartListen` | Supplies the RDS callback to the provider. | Available display or input. |
+| `IWRdsProtocolListenerCallback::OnConnected` | Reports an incoming connection and starts RDS processing. | Allocation of a new simultaneous session. |
+| `IWRdsProtocolConnectionCallback::OnReady` | Reports that the connection is ready to proceed. | Completed user logon. |
+| `IWRdsProtocolConnection::NotifySessionId` | Reports the session associated with the connection; the association can change. | Permanent ownership of a numeric ID. |
+| `IWRdsProtocolConnection::LogonNotify` | Reports user logon. | Display or input isolation. |
+| `IWRdsWddmIddProps::GetHardwareId` / `OnDriverLoad` | Selects the IDD and receives its load notification. | Exclusive control of a physical output. |
+| `IWRdsProtocolConnection::GetInputHandles` | Supplies input handles consumed by the stack. | Correct isolation of the devices. |
 
-La relación entre servicio y proveedor está descrita en [Method Call Sequence](https://learn.microsoft.com/en-us/windows/win32/termserv/method-call-sequence). [OnConnected](https://learn.microsoft.com/en-us/windows/win32/api/wtsprotocol/nf-wtsprotocol-iwrdsprotocollistenercallback-onconnected) inicia una secuencia gestionada por RDS; no es una llamada genérica para reservar un puesto local.
+The service/provider relationship is documented in [Method Call Sequence](https://learn.microsoft.com/en-us/windows/win32/termserv/method-call-sequence). [OnConnected](https://learn.microsoft.com/en-us/windows/win32/api/wtsprotocol/nf-wtsprotocol-iwrdsprotocollistenercallback-onconnected) begins an RDS-managed sequence; it is not a generic local-seat reservation call.
 
-El archivo [TestProtocolAPI.cpp](https://github.com/Azure/Remote-Desktop-Services-Protocol-Sample/blob/main/Sample/TestProtocol_Ext/TestProtocolAPI.cpp) muestra `OnConnected`, `GetConnectionId` y `OnReady`. Esa secuencia sirve como referencia de integración. El disparador de prueba y el manejo de autenticación del ejemplo necesitan sustituirse por mecanismos adecuados antes de cualquier uso fuera de un laboratorio.
+[TestProtocolAPI.cpp](https://github.com/Azure/Remote-Desktop-Services-Protocol-Sample/blob/main/Sample/TestProtocol_Ext/TestProtocolAPI.cpp) shows `OnConnected`, `GetConnectionId` and `OnReady`. This sequence is an integration reference. The sample's test trigger and authentication handling require suitable replacements before use outside a laboratory.
 
-### Partes que el ejemplo no resuelve
+### Gaps in the sample
 
-En [WRdsProtocolConnection.cpp](https://github.com/Azure/Remote-Desktop-Services-Protocol-Sample/blob/main/Sample/TestProtocol_Ext/WRdsProtocolConnection.cpp), `GetInputHandles` sigue marcado como pendiente y no entrega handles de entrada operativos. `GetHardwareId` nombra un driver de ejemplo; esa cadena no equivale a disponer de su implementación instalada y validada. Los callbacks de sesión son puntos de extensión, no un registro durable de propiedad. El ejemplo requiere revisión de resultados, salidas, vida de objetos y recuperación antes de integrarlo con `SeatExecutor`.
+In [WRdsProtocolConnection.cpp](https://github.com/Azure/Remote-Desktop-Services-Protocol-Sample/blob/main/Sample/TestProtocol_Ext/WRdsProtocolConnection.cpp), `GetInputHandles` remains a TODO and does not supply operational input handles. `GetHardwareId` names a sample driver; that string does not amount to an installed, validated implementation. Session callbacks are extension points, not a durable ownership record. Results, outputs, object lifetimes and recovery require review before integration with `SeatExecutor`.
 
-Por tanto, compilar esa solución no permite marcar como implementadas las capacidades nativas de RETSAR. Tampoco resuelve por sí misma los requisitos de edición, licencias o autenticación de Windows.
+Compiling that solution therefore cannot mark RETSAR's native capabilities as implemented. It also does not resolve Windows edition, licensing or authentication requirements.
 
-## La pantalla depende de una sesión real
+## Display depends on a real session
 
-La documentación de [IddCx para sesiones remotas](https://learn.microsoft.com/en-us/windows-hardware/drivers/display/iddcx1.4-updates-for-remote-idds) establece un requisito concreto: el dispositivo de un IDD con `IDDCX_ADAPTER_FLAGS_REMOTE_SESSION_DRIVER` debe haber sido creado por la pila de escritorio remoto del sistema. `IddCxAdapterInitAsync` falla si esa condición y la bandera no coinciden. No basta con crear un monitor virtual y asociarlo a un número de sesión.
+The [IddCx documentation for remote sessions](https://learn.microsoft.com/en-us/windows-hardware/drivers/display/iddcx1.4-updates-for-remote-idds) sets a specific prerequisite: the system remote desktop stack must have created the device for an IDD using `IDDCX_ADAPTER_FLAGS_REMOTE_SESSION_DRIVER`. `IddCxAdapterInitAsync` fails when that condition and the flag do not agree. Creating a virtual monitor and assigning it a session number is insufficient.
 
-Una vez disponible el contexto correcto, el driver declara monitores y configura la topología de esa sesión mediante IddCx. [IWRdsWddmIddProps](https://learn.microsoft.com/en-us/windows/win32/api/wtsprotocol/nn-wtsprotocol-iwrdswddmiddprops) ofrece la integración del IDD con RDS. La elección del adaptador de render puede usar [IddCxAdapterSetRenderAdapter](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/iddcx/nf-iddcx-iddcxadaptersetrenderadapter), pero necesita medición: cargar un driver no demuestra aceleración GPU efectiva ni compatibilidad de una aplicación.
+Once the appropriate context exists, the driver declares monitors and configures that session's topology through IddCx. [IWRdsWddmIddProps](https://learn.microsoft.com/en-us/windows/win32/api/wtsprotocol/nn-wtsprotocol-iwrdswddmiddprops) provides the IDD integration with RDS. Render-adapter selection can use [IddCxAdapterSetRenderAdapter](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/iddcx/nf-iddcx-iddcxadaptersetrenderadapter), but it requires measurement: loading a driver proves neither effective GPU acceleration nor application compatibility.
 
-La documentación de [GetInputHandles](https://learn.microsoft.com/en-us/windows/win32/api/wtsprotocol/nf-wtsprotocol-iwrdsprotocolconnection-getinputhandles) describe handles de dispositivos de teclado y ratón. No ofrece una operación independiente para crear una sesión ni demuestra que una ruta concreta de entrada quede aislada. El laboratorio deberá comprobarlo de extremo a extremo.
+[GetInputHandles](https://learn.microsoft.com/en-us/windows/win32/api/wtsprotocol/nf-wtsprotocol-iwrdsprotocolconnection-getinputhandles) documents keyboard and mouse device handles. It is not an independent session-creation operation and does not prove that a particular input route is isolated. The laboratory must verify that end to end.
 
-## Entorno previo al primer experimento
+## Prerequisites for the first experiment
 
-El siguiente trabajo de implementación debe poder compilarse sin registrar proveedores, instalar drivers, cambiar servicios ni tocar sesiones. Su ejecución con efectos necesita un entorno separado y preparado expresamente para pruebas:
+Implementation work must be buildable without registering providers, installing drivers, changing services or touching sessions. Execution with effects requires a separate environment prepared specifically for testing:
 
-- Máquina de laboratorio o VM desechable, con recuperación comprobada y sin sesiones de uso cotidiano.
-- Edición y configuración que permitan el escenario probado. Windows Server con RDSH es el candidato documentado para validar primero las interfaces. Ello no acredita soporte posterior en Windows 11.
-- Cuenta de prueba, autenticación normal y permisos administrativos del laboratorio; los informes no deben contener secretos.
-- Herramientas C++/ATL, SDK y WDK compatibles, y una vía de firma de drivers admitida por el entorno. El plan no depende de desactivar protecciones del equipo de uso diario.
-- Registro separado de los recursos preexistentes y de los creados por la prueba, con identificadores de ejecución y operaciones durables.
+- A laboratory machine or disposable VM with verified recovery and no everyday sessions.
+- An edition and configuration supporting the scenario being tested. Windows Server with RDSH is the documented candidate for validating the interfaces first. That does not establish later Windows 11 support.
+- A test account, normal authentication and laboratory administrator permissions; reports must contain no secrets.
+- Compatible C++/ATL tools, SDK and WDK, plus a driver-signing route supported by the environment. The plan does not depend on disabling protections on an everyday computer.
+- Separate records for pre-existing and experiment-created resources, with run identifiers and durable operations.
 
-Enterprise multi-session tiene condiciones específicas de despliegue; no se propone como sustitución automática de una instalación cliente. Véase la [FAQ oficial de Windows Enterprise multi-session](https://learn.microsoft.com/en-us/azure/virtual-desktop/windows-multisession-faq). Esta fase no contempla alterar políticas de concurrencia, mecanismos de licencia ni componentes de otro producto para forzar el resultado.
+Enterprise multi-session has specific deployment requirements; it is not proposed as an automatic replacement for a client installation. See the [official Windows Enterprise multi-session FAQ](https://learn.microsoft.com/en-us/azure/virtual-desktop/windows-multisession-faq). This phase does not change concurrency policies, license mechanisms or another product's components to force a successful result.
 
-## Puertas de aceptación
+## Acceptance gates
 
-Cada etapa debe conservar resultados fallidos y pruebas no ejercitadas. Ninguna etapa habilita por sí sola `WindowsBlockedExecutor`.
+Every stage must retain failed results and unexercised cases. No single stage enables `WindowsBlockedExecutor`.
 
-| Etapa | Evidencia exigida | Motivo para detener la progresión |
+| Stage | Required evidence | Reason to stop progression |
 | --- | --- | --- |
-| **A. Identidad de sesión** | Nueva conexión propia, sesión interactiva nueva y correlación registrada entre ejecución, conexión y sesión. La sesión principal de referencia continúa conectada. | Reutilización de una sesión ajena, cambio de identidad sin reconciliar o desconexión del puesto principal. |
-| **B. Gráficos** | IDD asociado por la pila correcta, superficie que se actualiza, aplicación gráfica dentro de la sesión y adaptador/modo de render registrados. | Solo un monitor añadido al escritorio principal, ausencia de imagen o render no medido. |
-| **C. Entrada** | Eventos dirigidos al puesto de prueba y observación simultánea de que el cursor y las aplicaciones del principal no reciben esos eventos. | Resultado basado únicamente en foco, coordenadas, hooks globales o una captura de pantalla. |
-| **D. Recuperación** | Fallos intermedios y pérdida de respuesta conservan propiedad e incertidumbre; la retirada comprueba la identidad completa de cada recurso propio. | Liberación por ID numérico, apropiación de recursos ajenos o creación repetida después de una respuesta incierta. |
-| **E. Puesto físico** | Salida física y entrada independientes en el hardware de laboratorio, conservando el primer puesto. Evidencia reproducible de creación, uso y retirada. | Solo una conexión remota visible, un escritorio alternativo o un visor de imagen. |
+| **A. Session identity** | A new owned connection, a new interactive session and recorded correlation between run, connection and session. The reference main session remains connected. | Reuse of another owner's session, unreconciled identity changes or disconnection of the main seat. |
+| **B. Graphics** | An IDD associated by the correct stack, an updating surface, a graphics application inside the session and recorded adapter/render mode. | Only a monitor added to the main desktop, no image or unmeasured rendering. |
+| **C. Input** | Events directed to the test seat, with simultaneous observation that the main cursor and applications do not receive them. | A result based only on focus, coordinates, global hooks or a screenshot. |
+| **D. Recovery** | Intermediate failures and lost replies preserve ownership and uncertainty; cleanup checks the complete identity of each owned resource. | Release by numeric ID, acquisition of another owner's resources or repeated creation after an uncertain reply. |
+| **E. Physical seat** | Independent physical output and input on laboratory hardware while preserving the first seat. Reproducible creation, use and teardown. | Only a visible remote connection, an alternate desktop or an image viewer. |
 
-Las etapas A–D estudian componentes necesarios; **una sesión RDS de laboratorio todavía no cumple el hito P0 de puesto físico**. La etapa E y los criterios de [ROADMAP.md](ROADMAP.md) siguen siendo obligatorios. Una VM puede servir para estudiar el protocolo y fallos; no sustituye la validación física ni demuestra compatibilidad de juegos.
+Stages A–D investigate necessary components; **an RDS laboratory session still does not satisfy the physical-seat P0 milestone**. Stage E and the criteria in [ROADMAP.md](ROADMAP.md) remain mandatory. A VM can support protocol and fault research; it does not replace physical validation or establish game compatibility.
 
-Los informes deben indicar versión y edición de Windows, configuración del laboratorio, revisiones exactas del proveedor y driver, transiciones observadas, errores originales y limpieza realizada. Una incompatibilidad se registra como resultado. No se transforma en éxito cambiando las restricciones del sistema.
+Reports must specify Windows version and edition, laboratory configuration, exact provider and driver revisions, observed transitions, original errors and cleanup performed. Incompatibility is a result to record. It is not converted into success by changing system restrictions.
 
-## Instrumento C++ de laboratorio
+## C++ laboratory instrument
 
-`src/lab/seat_probe.cpp` implementa un instrumento separado para recoger evidencia dentro de una sesión candidata. Se compila con `build.ps1 -Lab`; `-Test` añade pruebas puras de argumentos y de la condición de entrada. La compilación solo ejecuta su ayuda, nunca el modo interactivo.
+`src/lab/seat_probe.cpp` implements a separate evidence-collection instrument for a candidate session. Build it with `build.ps1 -Lab`; `-Test` adds pure argument and admission-gate tests. The build runs only its help, never interactive mode.
 
-Sin argumentos, o con `--help`, imprime ayuda sin observar el equipo. El modo `--interactive` exige `--expected-session N` y `--reference-session M`, enteros positivos distintos. Primero comprueba que el proceso ya pertenece a N y no a M. Si falla esa condición, termina antes de abrir archivos de salida, consultar objetos gráficos, crear un dispositivo D3D11 o abrir una ventana. No busca ni crea una sesión que coincida.
+With no arguments or `--help`, it prints help without observing the host. `--interactive` requires `--expected-session N` and `--reference-session M`, both positive and different integers. First it verifies that its own process already belongs to N and not M. If that gate fails, it exits before opening output files, inspecting graphics objects, creating a D3D11 device or opening a window. It does not seek or create a matching session.
 
-Después de esa comprobación, consulta su propia window station y desktop, carga el runtime D3D11 del sistema, solicita un dispositivo de hardware y muestra una ventana que debe activarse manualmente. Cuenta únicamente mensajes de ratón y teclado entregados a esa ventana; no registra teclas concretas, instala hooks ni inyecta entrada. Tampoco verifica si otro proceso originó los mensajes. La animación usa GDI. **Crear un dispositivo D3D11 no prueba presentación GPU ni asociación a una pantalla física.** La clasificación del adaptador procede del tipo solicitado y de la bandera de software DXGI; no demuestra asignación exclusiva de una GPU física.
+After the gate, it queries its own window station and desktop, loads the system D3D11 runtime, requests a hardware device and shows a window that must be activated manually. It counts only mouse and keyboard messages delivered to that window; it does not record specific keys, install hooks or inject input. It also does not verify whether another process originated those messages. Animation uses GDI. **Creating a D3D11 device does not prove GPU presentation or association with a physical display.** Adapter classification follows the requested type and DXGI software flag; it does not prove exclusive assignment of a physical GPU.
 
-Al cerrar, emite JSON con `createdSession=false`, `independenceNotProven=true` y `referenceSessionObserved=false`. El ID de referencia es una declaración del operador, no una sesión examinada por el instrumento. `--output` permite guardar ese informe en un archivo nuevo de una carpeta existente de C:, mediante el mismo helper de apertura restringida; no sobrescribe. Un fallo de escritura puede dejar un archivo nuevo parcial y se comunica como error.
+On exit, it emits JSON with `createdSession=false`, `independenceNotProven=true` and `referenceSessionObserved=false`. The reference ID is an operator declaration, not a session inspected by the instrument. `--output` writes the report to a new file in an existing directory on C: using the same restricted-open helper; it never overwrites. A write failure can leave a partial new file and is reported as an error.
 
-Este instrumento no concede propiedad por observar un ID. La comparación simultánea con el puesto principal sigue siendo una prueba independiente. El modo interactivo y la creación del dispositivo gráfico quedan pendientes de ejecutar en el laboratorio separado; añadir o compilar el instrumento no completa ninguna capacidad nativa ni el hito P0.
+The probe does not grant ownership by observing an ID. Simultaneous comparison with the main seat remains a separate test. Interactive mode and graphics-device creation are pending execution in an independent laboratory; adding or compiling the probe completes neither a native capability nor P0.
 
-Validación local del instrumento, el **10 de noviembre de 2026**: compilación C++17 con `/W4 /WX`, ayuda y **29 pruebas puras aprobadas**, sin ejecutar el modo interactivo. La misma ejecución de `build.ps1 -Test -Lab` conservó las 88 comprobaciones anteriores aprobadas y la validación independiente de JSON: **117 aprobadas, 0 fallidas y 1 rama adversarial de junction no ejercitada**. Esto no valida todavía la ventana, D3D11, los eventos ni el informe de una sesión real.
+### Instrument evidence
 
-## Procedencia y alcance
+The recorded local build passed C++17 compilation with `/W4 /WX`, help invocation and **29 pure checks**, without interactive execution. The combined local `build.ps1 -Test -Lab` run passed **117 checks**, plus independent JSON validation, with one adversarial junction branch not exercised. The corresponding public CI passed **118 checks**, including that branch. See [PROGRESS.md](PROGRESS.md#evidence-summary--020-engine-preview) for the exact revision and evidence.
 
-Esta revisión usa documentación de Microsoft y el código público del ejemplo de Azure. Los enlaces al repositorio apuntan a `main`, consultado en la fecha indicada; no se ha fijado aquí un SHA verificado. Antes de reutilizar código debe registrarse la revisión exacta y conservarse su licencia. No se incorpora código del ejemplo por añadir este documento.
+Neither run validates the interactive window, D3D11 creation, event delivery or a real-session report.
 
-No hay evidencia experimental propia de este candidato en esta versión. La conclusión actual es **proveedor compatible pendiente de validar**, no compatibilidad garantizada ni imposibilidad general de multiseat en Windows.
+## Provenance and scope
+
+This investigation uses Microsoft documentation and the public Azure sample. Repository links track `main`; a verified source SHA is not pinned here. Before reusing code, record its exact revision and preserve its license. Adding this document does not incorporate sample code.
+
+There is no project-owned experimental validation of this provider candidate in this preview. The conclusion is **a candidate provider awaiting validation**, not guaranteed compatibility or a general claim that Windows multiseat is impossible.

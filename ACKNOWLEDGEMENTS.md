@@ -1,23 +1,23 @@
-# Agradecimientos y procedencia
+# Acknowledgements and provenance
 
-RETSAR es un proyecto independiente mantenido por [kazah-png](https://github.com/kazah-png). Su código propio y sus recursos gráficos originales están bajo la [licencia MIT de este repositorio](LICENSE).
+RETSAR is an independent project maintained by [kazah-png](https://github.com/kazah-png). Its original code and visual assets are covered by the [MIT license in this repository](LICENSE).
 
-## Herramientas y asistencia
+## Tools and assistance
 
-| Proyecto o asistencia | Reconocimiento | Fuente y licencia |
+| Project or assistance | Acknowledgement | Source and license |
 | --- | --- | --- |
-| **Ghidra** | Herramienta empleada durante la investigación técnica y el análisis de interfaces y comportamiento nativo. | [NationalSecurityAgency/ghidra](https://github.com/NationalSecurityAgency/ghidra), [licencia Apache-2.0](https://github.com/NationalSecurityAgency/ghidra/blob/master/LICENSE) |
-| **REA — Reverse Engineer Anything** | Herramientas de apoyo a la investigación mediante agentes; referencia del flujo de análisis utilizado. | [morluto/rea](https://github.com/morluto/rea), [licencia MIT](https://github.com/morluto/rea/blob/main/LICENSE) |
-| **GPT-6 Astra ULTRA** | Asistencia en análisis, diseño, implementación, revisión y documentación. Esta denominación de modelo/configuración se atribuye a lo indicado por el mantenedor; el repositorio no verifica de forma independiente ese identificador. | Asistencia de IA, no dependencia del ejecutable ni aval de una organización. |
+| **Ghidra** | Used during technical research and analysis of native interfaces and behavior. | [NationalSecurityAgency/ghidra](https://github.com/NationalSecurityAgency/ghidra), [Apache-2.0 license](https://github.com/NationalSecurityAgency/ghidra/blob/master/LICENSE) |
+| **REA — Reverse Engineer Anything** | Agent-assisted research tools and a reference for the analysis workflow. | [morluto/rea](https://github.com/morluto/rea), [MIT license](https://github.com/morluto/rea/blob/main/LICENSE) |
+| **GPT-6 Astra ULTRA** | Assistance with analysis, design, implementation, review and documentation. This model/configuration name is attributed to the maintainer's description; the repository does not independently verify that identifier. | AI assistance, not an executable dependency or an organizational endorsement. |
 
-Las licencias indicadas para Ghidra y REA se comprobaron en sus repositorios originales el **10 de noviembre de 2026**. Sus proyectos pueden incluir componentes con licencias propias; los enlaces anteriores identifican sus licencias principales.
+The Ghidra and REA licenses were checked in their original repositories. Those projects may contain components under additional licenses; the links identify their main project licenses.
 
-## Alcance de estos créditos
+## Scope of these credits
 
-Ghidra y REA son herramientas de investigación, no componentes redistribuidos por RETSAR ni requisitos para compilarlo. Este repositorio no incorpora su código fuente, binarios ni resultados de descompilación de software de terceros. La licencia MIT de RETSAR no pretende relicenciar material ajeno.
+Ghidra and REA are research tools, not components redistributed by RETSAR or prerequisites for its build. This repository does not incorporate their source code, binaries or decompiled third-party software. RETSAR's MIT license does not purport to relicense anyone else's material.
 
-Los nombres y enlaces reconocen su aportación al proceso. No implican afiliación, patrocinio o validación del proyecto. La responsabilidad de revisar los cambios y describir sus límites corresponde al mantenimiento de RETSAR.
+The names and links recognize contributions to the development process. They do not imply affiliation, sponsorship or validation of RETSAR. Reviewing changes and describing their limits remain the project's responsibility.
 
-## Documentación técnica
+## Technical documentation
 
-La arquitectura cita documentación primaria de Microsoft para las APIs utilizadas. Las referencias ayudan a revisar decisiones concretas; no sustituyen las pruebas en Windows ni demuestran por sí mismas la viabilidad del proveedor multiseat pendiente.
+The architecture cites primary Microsoft documentation for the APIs used. References support review of specific decisions; they do not replace Windows testing or independently demonstrate the viability of the pending multiseat provider.

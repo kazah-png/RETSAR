@@ -1,0 +1,115 @@
+{
+  "schema": "retsar.lab-plan.v1",
+  "status": "proposed-awaiting-approval",
+  "executable": false,
+  "launcherImplemented": false,
+  "purpose": "Validate the C++ RDS provider against a real Windows Server guest.",
+  "doesNotProve": [
+    "physical multiseat on Windows 11 Home",
+    "independent ownership of host monitors or input devices",
+    "hardware graphics acceleration or application compatibility"
+  ],
+  "approval": {
+    "granted": false,
+    "requiredFor": [
+      "resource consumption and guest provisioning",
+      "official evaluation media and its applicable license terms"
+    ]
+  },
+  "guest": {
+    "product": "Windows Server 2022 Standard Evaluation",
+    "installationOption": "Desktop Experience",
+    "architecture": "x86_64",
+    "requiredRole": "RD Session Host",
+    "mediaObtained": false,
+    "licenseAccepted": false,
+    "installed": false,
+    "rdshReady": false,
+    "evaluationDays": 180,
+    "activationRequiredWithinDays": 10,
+    "rdsInitialLicensingGraceDays": 120,
+    "activationAndUpdateNetworkPlan": "pending; baseline has no guest outbound access"
+  },
+  "resources": {
+    "memoryMiB": 4096,
+    "virtualCpuCount": 2,
+    "accelerator": "tcg",
+    "hardwareAccelerationAssumed": false,
+    "hostProcessPriority": "BelowNormal",
+    "disk": {
+      "format": "qcow2",
+      "virtualCapacityGiB": 64,
+      "allocation": "sparse",
+      "preallocation": "off",
+      "hostVolume": "C",
+      "hostFreeSpaceFloorGiB": 25,
+      "growthGuard": {
+        "required": true,
+        "implemented": false,
+        "validated": false,
+        "blocksLaunchUntilValidated": true,
+        "requirements": [
+          "Check free space before provisioning, starting, importing media and creating snapshots.",
+          "Account for all laboratory files, not only the qcow2 disk.",
+          "Monitor remaining space and stop guest writes before the 25 GiB floor is reached.",
+          "Fail closed if monitoring or stopping writes cannot be confirmed.",
+          "Do not claim an absolute free-space guarantee against unrelated host applications."
+        ]
+      }
+    }
+  },
+  "machineProposal": {
+    "chipset": "q35",
+    "cpuModel": "max",
+    "firmware": "UEFI; compatible firmware files must be verified before provisioning",
+    "storageInterface": "emulated NVMe; guest boot compatibility not yet tested",
+    "graphics": "emulated standard VGA; no host GPU passthrough",
+    "compatibilityValidated": false
+  },
+  "access": {
+    "localDisplayWindow": false,
+    "vnc": { "bindAddress": "127.0.0.1", "tcpPort": 5905 },
+    "rdp": { "bindAddress": "127.0.0.1", "hostTcpPort": 13389, "guestTcpPort": 3389 },
+    "networkBackend": "user-mode",
+    "restrictGuestNetworking": true,
+    "outboundInternet": false,
+    "checkPortsBeforeLaunch": true,
+    "stopIfPortOccupied": true
+  },
+  "hostIntegration": {
+    "installHostDrivers": false,
+    "changeHostServices": false,
+    "enableHypervisorFeatures": false,
+    "createNetworkBridge": false,
+    "createTapAdapter": false,
+    "rebootHost": false,
+    "attachPhysicalDisks": false,
+    "passThroughHostDevices": false,
+    "shareFolders": false,
+    "shareClipboard": false,
+    "redirectRdpDrives": false,
+    "redirectRdpDevices": false,
+    "storeGuestCredentialsInRepository": false
+  },
+  "paths": {
+    "qemuExecutablePlaceholder": "<verified-qemu-directory>/qemu-system-x86_64.exe",
+    "privateWorkRootPlaceholder": "<private-work-root>/lab",
+    "relativeToPrivateWorkRoot": {
+      "installationMedia": "media/windows-server-evaluation.iso",
+      "guestDisk": "disks/server-evaluation.qcow2",
+      "firmwareVariables": "firmware/guest-vars.fd",
+      "reports": "reports",
+      "logs": "logs"
+    },
+    "resolveOnlyToOrdinaryDirectoriesOnC": true,
+    "concreteHostPathsKeptOutsideRepository": true
+  },
+  "launchBlockers": [
+    "explicit resource and license approval is pending",
+    "official media and guest preparation are pending",
+    "QEMU dependencies, firmware and guest compatibility are unverified",
+    "activation and updates require a separately agreed network plan",
+    "disk growth guard is not implemented or validated",
+    "there is no effectful launcher"
+  ]
+}

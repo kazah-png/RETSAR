@@ -1,19 +1,25 @@
-# Contribuir a RETSAR
+# Contributing to RETSAR
 
-El objetivo es un proveedor capaz de crear puestos Windows independientes. El motor transaccional actual y su simulador no demuestran esa capacidad.
+The goal is a provider that creates independent Windows seats. The transactional engine and its simulator do not establish that capability.
 
-## Cambios verificables
+## Reviewable changes
 
-1. Explica el problema y el comportamiento que cambia.
-2. Conserva la separación entre el proveedor simulado, las herramientas de laboratorio y el ejecutable público.
-3. Compila en Windows desde una carpeta de C: con `./build.ps1 -Test`. Incluye los resultados y los casos omitidos.
-4. Actualiza `docs/PROGRESS.md` y, si cambia una decisión, `docs/ARCHITECTURE.md` o `docs/NATIVE-BACKEND.md`.
-5. Presenta cambios pequeños y revisables. Un identificador de sesión existente o un dispositivo D3D no prueban la creación de un puesto nuevo.
+1. Explain the concrete problem and the behavior being changed.
+2. Preserve the separation between the simulated provider, laboratory tools and public executable.
+3. Build on Windows from a directory on C: using `.\build.ps1 -Test`, or `.\build.ps1 -Test -Lab` when changing the laboratory instrument. Report passed, failed and unexercised cases.
+4. Update [PROGRESS.md](docs/PROGRESS.md) by milestone and evidence. Update [ARCHITECTURE.md](docs/ARCHITECTURE.md) or [NATIVE-BACKEND.md](docs/NATIVE-BACKEND.md) when a design decision changes.
+5. Keep changes focused and reviewable. An existing session ID or a D3D device does not prove that a new seat was created.
 
-Las pruebas que creen sesiones, registren proveedores, instalen controladores o asignen dispositivos requieren un laboratorio independiente. No se ejecutan desde la compilación, la suite automática ni los comandos de consulta.
+Tests that create sessions, register providers, install drivers or assign devices require an independent laboratory. They must not run as part of the ordinary build, automated suite or read-only commands.
 
-## Procedencia y datos
+## Evidence and public documentation
 
-Usa documentación primaria y señala qué es un hecho, una inferencia o una hipótesis. Atribuye código y dependencias respetando sus licencias. Los informes de descompilación, componentes propietarios, credenciales e inventarios personales no forman parte del repositorio.
+Write public documentation, comments, issues and pull requests in English. Organize progress around milestones, observed behavior and acceptance criteria rather than dates or a reconstructed release chronology. Preserve version identifiers, commit hashes and evidence links.
 
-Los registros públicos deben estar depurados. No pegues tokens, contraseñas, cookies ni archivos de cuentas en issues o pull requests. Para un resultado del laboratorio, bastan identificadores de prueba y los datos técnicos necesarios para reproducirlo.
+Use primary documentation and distinguish facts, inferences and hypotheses. Attribute code and dependencies under their applicable licenses. Decompiled reports, proprietary components, credentials and personal inventories do not belong in this repository.
+
+Sanitize public logs. Do not include tokens, passwords, cookies or account files in issues or pull requests. Laboratory results should use test identifiers and the technical details needed to reproduce the observation.
+
+## Native provider changes
+
+Keep `WindowsBlockedExecutor` blocked until the relevant acceptance gates are met. A successful compile, listener callback or simulated transaction cannot enable a native capability. Describe how the proposed provider proves ownership, preserves uncertainty and avoids affecting resources belonging to another session.
