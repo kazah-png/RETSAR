@@ -49,14 +49,14 @@ jobs:
           New-Item -ItemType Directory -Path (Join-Path $ciRoot 'reports') | Out-Null
           "RETSAR_CI_ROOT=$ciRoot" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Compile and run model, lifecycle and CLI tests
+      - name: Compile core and lab probe; run non-interactive tests
         run: |
           $ErrorActionPreference = 'Stop'
           # The CLI suite intentionally invokes commands expected to return 1.
           # Its explicit assertions decide whether those exits are correct.
           $PSNativeCommandUseErrorActionPreference = $false
           $ciLog = Join-Path $env:RETSAR_CI_ROOT 'reports\ci-build-and-tests.log'
-          & (Join-Path $env:RETSAR_CI_ROOT 'build.ps1') -Test 2>&1 | Tee-Object -FilePath $ciLog
+          & (Join-Path $env:RETSAR_CI_ROOT 'build.ps1') -Test -Lab 2>&1 | Tee-Object -FilePath $ciLog
           if ($LASTEXITCODE -ne 0) { throw "Build/tests failed: $LASTEXITCODE" }
 
       - name: Summarize observed results
@@ -68,7 +68,7 @@ jobs:
             $ciLog = Join-Path $env:RETSAR_CI_ROOT 'reports\ci-build-and-tests.log'
             if (Test-Path -LiteralPath $ciLog) {
               Get-Content -LiteralPath $ciLog |
-                Where-Object { $_ -match '^(TOTAL |CLI TOTAL |SKIP |PASS JSON)' } |
+                Where-Object { $_ -match '^(TOTAL |CLI TOTAL |PROBE TOTAL |SKIP |PASS JSON)' } |
                 ForEach-Object { '- ' + $_ } |
                 Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
             }

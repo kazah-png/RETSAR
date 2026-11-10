@@ -66,9 +66,20 @@ Este informe incluye versión de Windows, sesión actual, monitores visibles, me
 
 Para guardar un informe, `--output` exige un archivo **nuevo** dentro de una carpeta existente de C:; no sobrescribe. Consulta `--help` para ver la sintaxis. El CLI actual no tiene órdenes para iniciar puestos, asignar dispositivos o instalar componentes.
 
+## Instrumento de laboratorio
+
+También se incluye una sonda independiente, preparada para medir datos dentro de una sesión candidata. Para compilarla sin abrir su ventana:
+
+```powershell
+.\build.ps1 -Test -Lab
+.\dist\lab\RETSAR-seat-probe.exe --help
+```
+
+La compilación solo ejecuta la ayuda. El modo interactivo requiere identificar explícitamente la sesión candidata y la de referencia; todavía no se ha probado en un puesto de laboratorio. No crea sesiones ni demuestra independencia por observar un ID. Véase el [contrato y alcance de la sonda](docs/NATIVE-BACKEND.md#instrumento-c-de-laboratorio).
+
 ## Verificación y límites
 
-La validación local registrada el **10 de noviembre de 2026** terminó con **88 comprobaciones aprobadas**, validación adicional de JSON y **una rama adversarial no ejercitada**. El sistema denegó la conversión de la carpeta de prueba en junction; ese caso no se contabiliza como aprobado. El [registro de progreso](docs/PROGRESS.md) detalla el alcance.
+La validación local registrada el **10 de noviembre de 2026** terminó con **117 comprobaciones aprobadas**, validación adicional de JSON y **una rama adversarial no ejercitada**. El sistema denegó la conversión de la carpeta de prueba en junction; ese caso no se contabiliza como aprobado. El [registro de progreso](docs/PROGRESS.md) separa las 88 comprobaciones del núcleo/CLI y las 29 comprobaciones puras añadidas para la sonda de laboratorio.
 
 Estas pruebas no acreditan aislamiento físico, compatibilidad de aplicaciones, estabilidad durante horas ni un proveedor Windows operativo. El CRC del diario detecta corrupción; no proporciona autenticación ni protección frente a restaurar una versión anterior íntegra del archivo.
 

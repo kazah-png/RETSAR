@@ -69,11 +69,19 @@ Las etapas A–D estudian componentes necesarios; **una sesión RDS de laborator
 
 Los informes deben indicar versión y edición de Windows, configuración del laboratorio, revisiones exactas del proveedor y driver, transiciones observadas, errores originales y limpieza realizada. Una incompatibilidad se registra como resultado. No se transforma en éxito cambiando las restricciones del sistema.
 
-## Próximo cambio C++ propuesto, todavía no implementado
+## Instrumento C++ de laboratorio
 
-Un ejecutable independiente de laboratorio, `retsar-seat-probe`, puede aportar evidencia útil antes de integrar el proveedor. Ejecutado explícitamente dentro de una sesión candidata, recogería su `SessionId`, identidad de window station/desktop y resultado de inicialización D3D11; mostraría una animación y contadores de entrada para contrastarlos con el puesto principal. El informe distinguiría datos observados de condiciones no comprobadas y permitiría correlacionar cada prueba con una ejecución.
+`src/lab/seat_probe.cpp` implementa un instrumento separado para recoger evidencia dentro de una sesión candidata. Se compila con `build.ps1 -Lab`; `-Test` añade pruebas puras de argumentos y de la condición de entrada. La compilación solo ejecuta su ayuda, nunca el modo interactivo.
 
-Ese instrumento no crearía sesiones, no inyectaría eventos y no concedería recibos de propiedad por observar un ID. Sería una herramienta de aceptación para el backend futuro. Su diseño y ejecución requieren revisión; añadirlo no marcaría como completada ninguna capacidad nativa.
+Sin argumentos, o con `--help`, imprime ayuda sin observar el equipo. El modo `--interactive` exige `--expected-session N` y `--reference-session M`, enteros positivos distintos. Primero comprueba que el proceso ya pertenece a N y no a M. Si falla esa condición, termina antes de abrir archivos de salida, consultar objetos gráficos, crear un dispositivo D3D11 o abrir una ventana. No busca ni crea una sesión que coincida.
+
+Después de esa comprobación, consulta su propia window station y desktop, carga el runtime D3D11 del sistema, solicita un dispositivo de hardware y muestra una ventana que debe activarse manualmente. Cuenta únicamente mensajes de ratón y teclado entregados a esa ventana; no registra teclas concretas, instala hooks ni inyecta entrada. Tampoco verifica si otro proceso originó los mensajes. La animación usa GDI. **Crear un dispositivo D3D11 no prueba presentación GPU ni asociación a una pantalla física.** La clasificación del adaptador procede del tipo solicitado y de la bandera de software DXGI; no demuestra asignación exclusiva de una GPU física.
+
+Al cerrar, emite JSON con `createdSession=false`, `independenceNotProven=true` y `referenceSessionObserved=false`. El ID de referencia es una declaración del operador, no una sesión examinada por el instrumento. `--output` permite guardar ese informe en un archivo nuevo de una carpeta existente de C:, mediante el mismo helper de apertura restringida; no sobrescribe. Un fallo de escritura puede dejar un archivo nuevo parcial y se comunica como error.
+
+Este instrumento no concede propiedad por observar un ID. La comparación simultánea con el puesto principal sigue siendo una prueba independiente. El modo interactivo y la creación del dispositivo gráfico quedan pendientes de ejecutar en el laboratorio separado; añadir o compilar el instrumento no completa ninguna capacidad nativa ni el hito P0.
+
+Validación local del instrumento, el **10 de noviembre de 2026**: compilación C++17 con `/W4 /WX`, ayuda y **29 pruebas puras aprobadas**, sin ejecutar el modo interactivo. La misma ejecución de `build.ps1 -Test -Lab` conservó las 88 comprobaciones anteriores aprobadas y la validación independiente de JSON: **117 aprobadas, 0 fallidas y 1 rama adversarial de junction no ejercitada**. Esto no valida todavía la ventana, D3D11, los eventos ni el informe de una sesión real.
 
 ## Procedencia y alcance
 
