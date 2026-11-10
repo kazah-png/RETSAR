@@ -5,9 +5,29 @@ $vswhere='C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
 if(!(Test-Path -LiteralPath $vswhere)){throw 'Se necesitan Visual Studio Build Tools con C++ y Windows SDK.'}
 $vs=& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 if(!$vs){throw 'No se encontraron las herramientas de C++.'}
-$vc=(Get-ChildItem -LiteralPath "$vs\VC\Tools\MSVC" -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
+$vcInstall=Get-ChildItem -LiteralPath "$vs\VC\Tools\MSVC" -Directory |
+ Where-Object {$_.Name -match '^\d+(\.\d+)+$' -and
+  (Test-Path -LiteralPath (Join-Path $_.FullName 'bin\Hostx64\x64\cl.exe')) -and
+  (Test-Path -LiteralPath (Join-Path $_.FullName 'include\vcruntime.h')) -and
+  (Test-Path -LiteralPath (Join-Path $_.FullName 'lib\x64\libcmt.lib'))} |
+ Sort-Object {[version]$_.Name} -Descending | Select-Object -First 1
+if(!$vcInstall){throw 'No hay una instalacion x64 completa del compilador C++.'}
+$vc=$vcInstall.FullName
 $sdk='C:\Program Files (x86)\Windows Kits\10'
-$ver=(Get-ChildItem -LiteralPath "$sdk\Include" -Directory | Sort-Object Name -Descending | Select-Object -First 1).Name
+# An Include directory may belong to a partial SDK installation. Select a
+# version only when its compiler headers, x64 libraries and manifest tool exist.
+$sdkInstall=Get-ChildItem -LiteralPath "$sdk\Include" -Directory |
+ Where-Object {
+  $candidateVersion=$_.Name
+  if($candidateVersion -notmatch '^\d+(\.\d+){3}$'){return $false}
+  $required=@("Include\$candidateVersion\ucrt\crtdbg.h","Include\$candidateVersion\um\Windows.h",
+   "Include\$candidateVersion\shared\sdkddkver.h","Lib\$candidateVersion\ucrt\x64\ucrt.lib",
+   "Lib\$candidateVersion\um\x64\kernel32.lib","bin\$candidateVersion\x64\mt.exe")
+  @($required | Where-Object {!(Test-Path -LiteralPath (Join-Path $sdk $_) -PathType Leaf)}).Count -eq 0
+ } | Sort-Object {[version]$_.Name} -Descending | Select-Object -First 1
+if(!$sdkInstall){throw 'Falta un Windows SDK completo con UCRT, cabeceras, bibliotecas x64 y mt.exe.'}
+$ver=$sdkInstall.Name
+Write-Output "Toolchain: MSVC $($vcInstall.Name); Windows SDK $ver; x64."
 $inc=@("$vc\include","$sdk\Include\$ver\ucrt","$sdk\Include\$ver\um","$sdk\Include\$ver\shared") | ForEach-Object { '/I'+$_ }
 $libs=@("$vc\lib\x64","$sdk\Lib\$ver\ucrt\x64","$sdk\Lib\$ver\um\x64") | ForEach-Object { '/LIBPATH:'+$_ }
 New-Item -ItemType Directory -Force -Path "$base\build","$base\dist","$base\reports" | Out-Null
