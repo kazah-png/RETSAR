@@ -1,0 +1,4 @@
+LIBRARY RETSAR-RdsBridge
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

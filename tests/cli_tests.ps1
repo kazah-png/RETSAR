@@ -27,7 +27,7 @@ $checks.Add([pscustomobject]@{check='Unknown option rejected without inventory';
 $help=& $exe --help
 if($LASTEXITCODE -ne 0 -or ($help -join "`n") -notmatch 'RETSAR 0.2.0-engine-preview' -or ($help -join "`n") -notmatch 'Runtime Environment for Terminal Sharing and Allocation of Resources'){throw 'Help name or version mismatch'}
 $checks.Add([pscustomobject]@{check='Help reports engine preview version';result='PASS'})
-$report=[pscustomobject]@{schema='retsar.cli-validation.v1';date='2026-11-10';version=$state.version;executableSHA256=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash;hostInspected=$false;checks=$checks;outputArtifact=$target}
-$report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $base 'reports\validation-cli-20261110.json') -Encoding utf8
+$report=[pscustomobject]@{schema='retsar.cli-validation.v1';version=$state.version;executableSHA256=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash;hostInspected=$false;checks=$checks;outputArtifact=$target}
+$report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $base 'reports\validation-cli.json') -Encoding utf8
 $checks | ForEach-Object {Write-Output ('PASS CLI: '+$_.check)}
 Write-Output ('CLI TOTAL '+$checks.Count+' passed, 0 failed; no host inventory or seat mutation.')

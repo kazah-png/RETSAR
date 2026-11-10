@@ -2,6 +2,8 @@
 
 This document defines a research direction and its acceptance tests. It does not describe an operational provider or installation instructions for an everyday computer.
 
+The [original SDK bridge](RDS-BRIDGE.md) implements an opt-in, in-process integration scaffold. Its callback tests use mocks; service integration remains unverified. The [isolated laboratory](../lab/README.md) documents the separate guest preparation and supervision path.
+
 **RETSAR has no validated mechanism for creating a second simultaneous Windows 11 seat with independent display and input.** The absence of a proven implementation does not establish that every possible implementation is technically impossible. The transactional core is separate from that question: its tests do not prove session creation.
 
 ## Candidate with public interfaces and source
@@ -89,6 +91,6 @@ Neither run validates the interactive window, D3D11 creation, event delivery or 
 
 ## Provenance and scope
 
-This investigation uses Microsoft documentation and the public Azure sample. Repository links track `main`; a verified source SHA is not pinned here. Before reusing code, record its exact revision and preserve its license. Adding this document does not incorporate sample code.
+This investigation uses Microsoft documentation and the public Azure sample at [commit `0b5a0bae1cc1c2a667b5962bd7847d5181ae375f`](https://github.com/Azure/Remote-Desktop-Services-Protocol-Sample/tree/0b5a0bae1cc1c2a667b5962bd7847d5181ae375f). The implementation is original SDK-based code; no Azure sample implementation is incorporated. Before any future code reuse, preserve the exact source revision and license.
 
 There is no project-owned experimental validation of this provider candidate in this preview. The conclusion is **a candidate provider awaiting validation**, not guaranteed compatibility or a general claim that Windows multiseat is impossible.

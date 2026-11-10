@@ -1,8 +1,17 @@
 {
   "schema": "retsar.lab-plan.v1",
-  "status": "proposed-awaiting-approval",
+  "status": "deployment-template",
   "executable": false,
-  "launcherImplemented": false,
+  "launcherImplemented": true,
+  "supervisor": "supervise_qemu.py",
+  "validation": {
+    "fakeApiTestsPassed": 16,
+    "nativeOwnedChildChecksPassed": 2,
+    "nativeCheckScope": "Newly created sleeping Python helpers: job termination and kill on job closure.",
+    "qemuStartupAttempted": true,
+    "guestBootObserved": false,
+    "guestSessionCreationProven": false
+  },
   "purpose": "Validate the C++ RDS provider against a real Windows Server guest.",
   "doesNotProve": [
     "physical multiseat on Windows 11 Home",
@@ -10,6 +19,7 @@
     "hardware graphics acceleration or application compatibility"
   ],
   "approval": {
+    "requiredForEachDeployment": true,
     "granted": false,
     "requiredFor": [
       "resource consumption and guest provisioning",
@@ -24,7 +34,11 @@
     "mediaObtained": false,
     "licenseAccepted": false,
     "installed": false,
-    "rdshReady": false,
+    "rdshConfigured": false,
+    "providerReady": false,
+    "configurationMarker": "rdsh-configured",
+    "configurationMarkerChecks": ["RDS-RD-Server installed", "TermService running"],
+    "configurationMarkerDoesNotProve": ["provider registration", "session creation", "isolation"],
     "evaluationDays": 180,
     "activationRequiredWithinDays": 10,
     "rdsInitialLicensingGraceDays": 120,
@@ -43,17 +57,27 @@
       "preallocation": "off",
       "hostVolume": "C",
       "hostFreeSpaceFloorGiB": 25,
+      "guestWriteThrottleMiBPerSecond": 16,
       "growthGuard": {
         "required": true,
-        "implemented": false,
-        "validated": false,
-        "blocksLaunchUntilValidated": true,
-        "requirements": [
-          "Check free space before provisioning, starting, importing media and creating snapshots.",
-          "Account for all laboratory files, not only the qcow2 disk.",
-          "Monitor remaining space and stop guest writes before the 25 GiB floor is reached.",
-          "Fail closed if monitoring or stopping writes cannot be confirmed.",
-          "Do not claim an absolute free-space guarantee against unrelated host applications."
+        "implemented": true,
+        "componentChecksPassed": true,
+        "vmGrowthUnderLoadVerified": false,
+        "stopWhenFreeGiBAtOrBelow": 26,
+        "pollIntervalMs": 200,
+        "heartbeatTimeoutMs": 2000,
+        "absoluteFreeSpaceGuarantee": false,
+        "behavior": [
+          "Check all C: volume free space before launch and while supervising the guest.",
+          "Terminate only the supervisor's owned job on threshold, monitor failure or controller EOF.",
+          "Keep the unnamed kill-on-close job handle non-inheritable.",
+          "Create the child suspended, assign its handle to the job, then resume it."
+        ],
+        "limitations": [
+          "Provisioning, media downloads and disk copies require separate preflight checks.",
+          "Other applications, delayed polling and buffered writes can cross the desired floor.",
+          "The guest-disk throttle does not cap every host write.",
+          "Forced termination can leave the disposable guest disk unclean."
         ]
       }
     }
@@ -64,6 +88,9 @@
     "firmware": "UEFI; compatible firmware files must be verified before provisioning",
     "storageInterface": "emulated NVMe; guest boot compatibility not yet tested",
     "graphics": "emulated standard VGA; no host GPU passthrough",
+    "pointer": "emulated USB tablet; no host device passthrough",
+    "guestMemoryDumpExclusionEnforced": false,
+    "unsupportedWindowsOptionRemoved": "dump-guest-core=off",
     "compatibilityValidated": false
   },
   "access": {
@@ -75,6 +102,31 @@
     "outboundInternet": false,
     "checkPortsBeforeLaunch": true,
     "stopIfPortOccupied": true
+  },
+  "controller": {
+    "transport": "QMP over private child stdin and stdout pipes",
+    "guestInitiallyPaused": true,
+    "stdinEofTerminatesGuest": true,
+    "arbitraryQmpCommandsAllowed": false,
+    "guestSerialLogStopMiB": 16,
+    "guestSerialThresholdMayOvershootBetweenChecks": true,
+    "stderrLogCapMiB": 4
+  },
+  "unattendedSetup": {
+    "template": "autounattend.xml.template",
+    "bootstrap": "guest-bootstrap.ps1",
+    "reviewed": true,
+    "executedInGuest": false,
+    "optionalAnswerIsoReadOnly": true,
+    "generatedAnswerMediaContainsPlaintextCredentials": true,
+    "generatedAnswerMediaMustRemainPrivate": true,
+    "templateAcceptsEvaluationEula": true,
+    "templateWipesGuestDiskZero": true,
+    "wipeScopeDependsOnFixedDisposableQcow2Attachments": true,
+    "bootstrapGatesProtectEarlierSetupWipe": false,
+    "bootstrapRequiredEnvironment": ["hostname RETSARLAB", "manufacturer QEMU", "Windows Server"],
+    "bootstrapRegistersProvider": false,
+    "bootstrapCreatesSeat": false
   },
   "hostIntegration": {
     "installHostDrivers": false,
@@ -96,20 +148,23 @@
     "privateWorkRootPlaceholder": "<private-work-root>/lab",
     "relativeToPrivateWorkRoot": {
       "installationMedia": "media/windows-server-evaluation.iso",
+      "optionalPrivateAnswerMedia": "media/private-answer.iso",
       "guestDisk": "disks/server-evaluation.qcow2",
       "firmwareVariables": "firmware/guest-vars.fd",
       "reports": "reports",
-      "logs": "logs"
+      "logs": "logs",
+      "guestSerialLog": "logs/guest-serial.log"
     },
     "resolveOnlyToOrdinaryDirectoriesOnC": true,
     "concreteHostPathsKeptOutsideRepository": true
   },
-  "launchBlockers": [
-    "explicit resource and license approval is pending",
-    "official media and guest preparation are pending",
-    "QEMU dependencies, firmware and guest compatibility are unverified",
-    "activation and updates require a separately agreed network plan",
-    "disk growth guard is not implemented or validated",
-    "there is no effectful launcher"
+  "perDeploymentPrerequisites": [
+    "Obtain explicit resource and applicable license approval.",
+    "Obtain and verify official media; prepare only a disposable guest disk.",
+    "Verify QEMU dependencies, firmware, private paths and loopback ports.",
+    "Review private answer-media credentials and the fixed guest-disk-only wipe scope.",
+    "Keep the supervisor controller input open throughout the run.",
+    "Agree activation and updates networking separately from the restricted baseline.",
+    "Treat guest boot, role configuration and real session creation as separate unproven stages."
   ]
 }

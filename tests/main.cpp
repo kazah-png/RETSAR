@@ -11,7 +11,7 @@ int main(int argc,char** argv){
         // Deliberately a TEST schema, never presented as real device inventory.
         std::cout<<seats::Json(seats::Json::Object{{"schema","retsar.test-fixture.v1"},{"testOnly",true},
             {"escaped",std::string("quote\" slash\\ newline\n tab\t control")+char(1)},
-            {"utf8",u8"España · ratón"},{"array",seats::Json::Array{nullptr,true,false,-2,0,42}},
+            {"utf8",u8"Unicode · café"},{"array",seats::Json::Array{nullptr,true,false,-2,0,42}},
             {"capabilities",seats::capabilityJson({})}}).dump()<<'\n';return 0;
     }
     using namespace seats;
@@ -46,7 +46,7 @@ int main(int argc,char** argv){
     check(Json::quote("a\"b\\c\n")=="\"a\\\"b\\\\c\\n\"","JSON escapes quotes backslashes and newlines");
     check(Json::quote(std::string(1,char(1)))=="\"\\u0001\"","JSON escapes low control characters");
     check(Json(Json::Array{nullptr,true,false,-2}).dump()=="[null,true,false,-2]","JSON primitive types remain valid");
-    check(Json(std::string(u8"ratón")).dump()==std::string(u8"\"ratón\""),"UTF-8 text preserved");
+    check(Json(std::string(u8"café")).dump()==std::string(u8"\"café\""),"UTF-8 text preserved");
     std::cout<<"TOTAL "<<passes<<" passed, "<<failures<<" failed. No device inventory was executed.\n";
     return failures?1:0;
 }

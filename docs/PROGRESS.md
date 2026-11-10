@@ -2,6 +2,16 @@
 
 Progress is organized by capability and evidence. A compiled component, simulated transaction or existing session ID is not recorded as an operational native seat.
 
+## SDK bridge and laboratory supervision checkpoint
+
+The optional [RDS SDK bridge](RDS-BRIDGE.md) passed **109 in-process mock checks**. The combined local `build.ps1 -Test -Lab -RdsLab` run passed **226 checks**, plus independent JSON validation, with the same unexercised junction branch described below. These checks load the explicit DLL and fake callback objects; they do not register COM classes or call an RDS service.
+
+The [laboratory supervisor](../lab/README.md) passed **16 separate fake-API tests**. Its explicit native smoke test also verified termination and kill-on-job-close with **two newly created sleeping helper processes**. Those two process tests were run locally, not as part of CI, and neither creates a VM or Windows session. Guest installation and provider integration are separate experiments.
+
+Review corrected the required readiness notification order, serialized outgoing cancellation, preserved original cancellation failures, and retained early QEMU startup errors in the laboratory log. Public CI evidence for the earlier core/probe revision remains below; the new bridge/supervisor revision requires its own run.
+
+The native executor remains blocked. P0 is open.
+
 ## Evidence summary · 0.2.0-engine-preview
 
 | Check | Recorded local result | Recorded public CI result |

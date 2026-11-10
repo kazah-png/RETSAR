@@ -1,8 +1,8 @@
-# Proposed Windows Server laboratory
+# Windows Server laboratory
 
-This is a reviewable plan for testing the C++ RDS provider in a **real Windows Server guest**. It is not a launcher, a prepared virtual machine, or evidence that session creation works. No ISO has been obtained and no guest has been provisioned by this plan.
+This directory contains an opt-in Windows QEMU supervisor and a deployment template for testing the C++ RDS provider in a **real Windows Server guest**. The supervisor is implemented: 16 tests using a fake Windows API passed, and two native checks terminated only newly created sleeping Python helper processes. A QEMU startup attempt rejected an unsupported Windows option before guest boot. **Guest boot and guest session creation have not been demonstrated.**
 
-The machine-readable proposal is [plan.json](plan.json). Resource use and the applicable evaluation license terms require approval before provisioning. The launcher and storage guard described below are not implemented.
+[plan.json](plan.json) is a reusable deployment template, not a record of anyone's approval or computer. Its deployment-state fields start unapproved and unprovisioned. Each deployment needs approval for its resource use and applicable evaluation terms; the repository does not supply that approval, installation media or credentials.
 
 ## Scope of the experiment
 
@@ -12,32 +12,48 @@ A successful experiment would need to demonstrate a newly created RDS session, i
 
 This experiment does **not** establish physical multiseat support on Windows 11 Home, ownership of physical monitors or input devices, hardware graphics acceleration, or compatibility with a particular game. Those require separate evidence.
 
-## Proposed resource budget
+## Fixed resource budget
 
-| Resource | Proposed allocation |
+| Resource | Allocation |
 | --- | --- |
 | Guest memory | 4 GiB |
 | Virtual CPUs | 2 |
 | Accelerator | QEMU TCG software emulation |
 | Host process priority | BelowNormal |
 | Guest disk | Sparse qcow2, 64 GiB virtual capacity, no preallocation |
-| Required free-space floor on C: | 25 GiB |
+| Guest disk write throttle | 16 MiB/s |
+| Desired free-space floor on C: | 25 GiB |
+| Supervisor stop threshold on C: | At or below 26 GiB |
 
 TCG is the baseline and fallback: the plan does not assume that WHPX or Hyper-V is usable and does not enable either feature. TCG is supported on Windows, but boot time, responsiveness and CPU consumption have not been measured for this guest. BelowNormal priority and two virtual CPUs do not constitute a hard CPU-use ceiling. [QEMU accelerator documentation](https://www.qemu.org/docs/master/system/introduction.html).
 
-The initial machine proposal uses q35, an emulated NVMe disk, UEFI firmware and emulated VGA. The exact QEMU build, its dependencies, firmware files and guest boot compatibility must be verified before provisioning. An existing QEMU executable is not sufficient proof that these prerequisites are satisfied.
+The fixed command uses q35, an emulated NVMe disk, UEFI firmware, emulated VGA and a virtual USB tablet. The exact QEMU build, its dependencies and firmware files must be verified for each deployment. Guest boot compatibility has not yet been demonstrated. An existing QEMU executable is not sufficient proof of that compatibility.
 
-### Sparse disk growth is not yet controlled
+The Windows QEMU build rejected `dump-guest-core=off` with `Dumping guest memory cannot be disabled on this host`. That unsupported option was removed. The supervisor cannot enforce exclusion of guest memory from host crash dumps through that flag; no host crash-dump setting was changed. Startup stderr is retained even when QEMU exits before QMP becomes available.
+
+### Storage monitoring and its limits
 
 **64 GiB is the guest-visible capacity, not an initial 64 GiB allocation.** The disk can grow as the guest writes. Installation media, firmware variables, logs and any snapshots also consume host storage.
 
-A future launcher must refuse to start until a tested guard can check space before provisioning and starting, account for all laboratory files, monitor growth, and stop guest writes before free space falls below 25 GiB. If monitoring or stopping writes cannot be confirmed, it must fail closed. A startup check or periodic polling alone must not be described as an absolute guarantee: unrelated host applications can also consume disk space.
+[supervise_qemu.py](supervise_qemu.py) checks free space on C: before launch and during its 200 ms polling loop. At or below 26 GiB it terminates its own job, providing a 1 GiB margin above the desired 25 GiB floor. Disk-space errors, QMP failures and loss of the controller's standard-input channel also stop the guest. A watchdog terminates the job if the supervisor heartbeat becomes more than two seconds old. Guest disk writes are throttled to 16 MiB/s; this is not a cap on every host write, including firmware and logs.
 
-**That guard is pending. The current plan does not enforce the floor and is not ready to launch.** No snapshots or additional disk copies are budgeted by default.
+This is a monitored target, **not a reservation or absolute guarantee**. Other applications can consume disk space, scheduling can delay a check, and buffered writes can continue briefly during termination. Native process cleanup was tested; VM disk-growth behavior under load has not been tested. Abrupt termination can leave the disposable guest disk unclean.
+
+The supervisor does not download media or create disks. Provisioning tools must separately check the storage budget before downloads, copies and disk creation. No snapshots or additional disk copies are budgeted by default. The supervisor rejects qcow2 backing files, external data files, internal snapshots and an unexpected virtual capacity.
+
+## Process ownership and controller
+
+The supervisor creates its own QEMU child suspended, assigns it to an unnamed, non-inheritable Windows Job Object with `KILL_ON_JOB_CLOSE`, and only then resumes the primary thread. It owns process handles rather than discovering processes by PID. Cleanup affects that job and its descendants; it does not attach to existing QEMU processes. Closing the supervisor closes its job and terminates the guest. [Windows Job Object behavior](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects).
+
+QEMU starts with its guest CPUs paused until the supervisor completes QMP negotiation over private standard-input/output pipes. The controller must keep the supervisor's stdin open: **EOF stops the VM**. The JSON command allowlist supports status queries, guest keys and pointer events, guest power/reset commands, and captures with simple `.ppm` names inside the private reports directory. It does not expose arbitrary QMP, monitor commands, device hotplug or extra QEMU arguments.
+
+The virtual guest serial port writes to `logs/guest-serial.log`; an existing file is refused at launch. The monitor stops the guest when this file reaches 16 MiB. This threshold can be exceeded between checks. It is an emulated port, not access to a host COM device. QEMU stderr is separately capped at 4 MiB.
+
+Run the inert checks with `python -B -m unittest discover -s lab -p test_supervise_qemu.py -v`. The separate opt-in `python -B lab/guardian_smoke.py --run-owned-child-test` starts two disposable sleeping Python children to check job termination, kill on job closure, priority and non-inheritance. That native check is not a VM or RDS test.
 
 ## Host separation and access
 
-The proposed guest runs headless, without a local QEMU display window. Access is limited to:
+The guest runs headless, without a local QEMU display window. Access is limited to:
 
 - VNC listening on `127.0.0.1:5905`.
 - RDP forwarded from `127.0.0.1:13389` to guest TCP port `3389`.
@@ -48,7 +64,17 @@ The baseline provides no guest outbound Internet access. It creates no bridge or
 
 No physical disks or host devices are attached. There are no shared folders, clipboard integration or guest-agent integration. RDP and VNC clients must have clipboard transfer disabled; RDP drive and device redirection must also be disabled. Guest credentials must not be placed in command lines, logs, this plan or the repository.
 
-All disk images, media, variable firmware files and test outputs belong in a private ordinary directory on C:. The plan contains only relative paths and placeholders. Resolve those placeholders privately; do not publish concrete host paths or add guest images to the repository.
+All disk images, media, variable firmware files and test outputs belong in a private ordinary directory on C:. The supervisor rejects non-C paths and reparse points. The plan contains only relative paths and placeholders. Resolve those placeholders privately; do not publish concrete host paths or add guest images to the repository.
+
+## Unattended guest setup
+
+[autounattend.xml.template](autounattend.xml.template) and [guest-bootstrap.ps1](guest-bootstrap.ps1) have been reviewed as guest setup artifacts, but have not yet run in a VM. A private builder must substitute the selected image index, bootstrap command and a guest-only administrator password. The generated answer XML and optional answer ISO contain that password in plaintext. Read-only attachment does not encrypt them: keep both private, restrict access, and never commit, publish or include them in logs. Guest setup may retain copies inside the disposable disk. Disabling automatic logon does not certify that every credential copy has been erased.
+
+**The answer template wipes guest disk 0.** Its scope depends on using the supervisor's fixed attachment set: one disposable qcow2 guest disk, firmware and read-only ISO media, with no physical disk or host device attached. The later bootstrap checks do not protect this earlier Windows Setup operation. Do not reuse the answer file with a different disk configuration or run the bootstrap on the host. The template also accepts the evaluation EULA during setup; only generate and use a private answer ISO after the applicable terms have been approved.
+
+Before changing guest settings, the bootstrap checks all three conditions: hostname `RETSARLAB`, QEMU manufacturer and Windows Server. It also checks the resource ceiling. These are deployment checks, not an authentication boundary. Only inside that gated guest does it install RD Session Host, arrange any needed guest reboot, configure guest RDP and disable automatic logon.
+
+Its final marker is `rdsh-configured`: the role is checked as installed and `TermService` as running. The same record explicitly reports `providerRegistered=false` and `createdSeat=false`. **This marker does not establish provider readiness, session creation or isolation.**
 
 ## Media and licensing prerequisites
 
@@ -66,11 +92,14 @@ QEMU is a separate tool under GPLv2, with component-specific licenses. Its binar
 - [ ] Official media obtained and verified; Desktop Experience selected.
 - [ ] QEMU build, dependencies, firmware and guest boot configuration verified.
 - [ ] Private C: paths and resource headroom checked.
-- [ ] Disk growth guard implemented and validated, including loss of monitoring.
+- [x] Supervisor and fixed launch configuration implemented; 16 fake-API tests passed.
+- [x] Native job termination and kill-on-close checked with two owned helper children.
+- [ ] VM storage-growth behavior and guest boot verified.
 - [ ] Loopback ports and client redirection settings checked.
 - [ ] Activation and updates network arrangement agreed.
-- [ ] Effectful launcher reviewed separately.
-- [ ] Guest installed, required guest reboots completed, and RDSH readiness verified.
+- [ ] Private answer ISO, credential handling and guest-disk-only wipe reviewed for this deployment.
+- [ ] Guest installed, required guest reboots completed, and `rdsh-configured` evidence reviewed.
+- [ ] Provider readiness verified separately from role installation and service status.
 - [ ] Real session lifecycle experiment executed and evidence reviewed.
 
-Until these conditions are met, results remain **planned**, not passed. GitHub compilation and unit tests do not complete this checklist.
+Only the checked component-level validations have passed. VM installation and the real session lifecycle remain untested; GitHub compilation and unit tests do not complete those experiments.

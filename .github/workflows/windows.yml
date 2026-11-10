@@ -43,21 +43,29 @@ jobs:
           New-Item -ItemType Directory -Path $ciRoot | Out-Null
           $ciRoot = (Resolve-Path -LiteralPath $ciRoot).ProviderPath
           if ([IO.Path]::GetPathRoot($ciRoot) -ine 'C:\') { throw 'Unexpected resolved test directory.' }
-          foreach ($item in @('src', 'tests', 'build.ps1')) {
+          foreach ($item in @('src', 'tests', 'lab', 'build.ps1')) {
             Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE $item) -Destination $ciRoot -Recurse
           }
           New-Item -ItemType Directory -Path (Join-Path $ciRoot 'reports') | Out-Null
           "RETSAR_CI_ROOT=$ciRoot" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Compile core and lab probe; run non-interactive tests
+      - name: Compile core, probe and SDK bridge; run non-interactive tests
         run: |
           $ErrorActionPreference = 'Stop'
           # The CLI suite intentionally invokes commands expected to return 1.
           # Its explicit assertions decide whether those exits are correct.
           $PSNativeCommandUseErrorActionPreference = $false
           $ciLog = Join-Path $env:RETSAR_CI_ROOT 'reports\ci-build-and-tests.log'
-          & (Join-Path $env:RETSAR_CI_ROOT 'build.ps1') -Test -Lab 2>&1 | Tee-Object -FilePath $ciLog
+          & (Join-Path $env:RETSAR_CI_ROOT 'build.ps1') -Test -Lab -RdsLab 2>&1 | Tee-Object -FilePath $ciLog
           if ($LASTEXITCODE -ne 0) { throw "Build/tests failed: $LASTEXITCODE" }
+
+      - name: Test laboratory supervision with fake Windows calls
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ciLog = Join-Path $env:RETSAR_CI_ROOT 'reports\ci-build-and-tests.log'
+          # Does not launch QEMU, helper processes, guest scripts or native RDS.
+          python -B -m unittest discover -s (Join-Path $env:RETSAR_CI_ROOT 'lab') -p test_supervise_qemu.py -v 2>&1 | Tee-Object -FilePath $ciLog -Append
+          if ($LASTEXITCODE -ne 0) { throw "Laboratory unit tests failed: $LASTEXITCODE" }
 
       - name: Summarize observed results
         if: always()
@@ -68,7 +76,7 @@ jobs:
             $ciLog = Join-Path $env:RETSAR_CI_ROOT 'reports\ci-build-and-tests.log'
             if (Test-Path -LiteralPath $ciLog) {
               Get-Content -LiteralPath $ciLog |
-                Where-Object { $_ -match '^(TOTAL |CLI TOTAL |PROBE TOTAL |SKIP |PASS JSON)' } |
+                Where-Object { $_ -match '^(TOTAL |CLI TOTAL |PROBE TOTAL |MOCK RDS TOTAL |SKIP |PASS JSON|Ran [0-9]+ tests|OK$)' } |
                 ForEach-Object { '- ' + $_ } |
                 Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
             }

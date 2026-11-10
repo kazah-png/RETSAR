@@ -13,6 +13,8 @@ RETSAR aims to provide two independent Windows seats with explicit display and i
 - [x] Simulated provider isolated from the public executable.
 - [x] Automated Windows build and tests.
 - [x] Separate laboratory probe with pure argument and session-gate tests.
+- [x] Optional SDK bridge with explicit mock callback and cancellation tests.
+- [x] Opt-in laboratory process supervision with fake-API and owned-helper tests.
 
 A completed foundation does not amount to a functional seat. The next milestone is the project's critical dependency.
 
