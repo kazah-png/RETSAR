@@ -1,0 +1,75 @@
+name: Windows build and tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Prepare an isolated source copy on C
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Hosted Windows workspaces and RUNNER_TEMP may be on D:.
+          # Keep the engine's C:-only policy; do not relax it for CI.
+          $ciTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
+          if ([IO.Path]::GetPathRoot($ciTemp) -ine 'C:\') {
+            $ciTemp = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Temp'
+          }
+          $ciTemp = [IO.Path]::GetFullPath($ciTemp)
+          if ([IO.Path]::GetPathRoot($ciTemp) -ine 'C:\') {
+            throw 'A temporary directory on C: is required; no other drive will be used for test artifacts.'
+          }
+          $ciRoot = Join-Path $ciTemp ('RETSAR-ci-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $ciRoot | Out-Null
+          $ciRoot = (Resolve-Path -LiteralPath $ciRoot).ProviderPath
+          if ([IO.Path]::GetPathRoot($ciRoot) -ine 'C:\') { throw 'Unexpected resolved test directory.' }
+          foreach ($item in @('src', 'tests', 'build.ps1')) {
+            Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE $item) -Destination $ciRoot -Recurse
+          }
+          New-Item -ItemType Directory -Path (Join-Path $ciRoot 'reports') | Out-Null
+          "RETSAR_CI_ROOT=$ciRoot" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Compile and run model, lifecycle and CLI tests
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The CLI suite intentionally invokes commands expected to return 1.
+          # Its explicit assertions decide whether those exits are correct.
+          $PSNativeCommandUseErrorActionPreference = $false
+          $ciLog = Join-Path $env:RETSAR_CI_ROOT 'reports\ci-build-and-tests.log'
+          & (Join-Path $env:RETSAR_CI_ROOT 'build.ps1') -Test 2>&1 | Tee-Object -FilePath $ciLog
+          if ($LASTEXITCODE -ne 0) { throw "Build/tests failed: $LASTEXITCODE" }
+
+      - name: Summarize observed results
+        if: always()
+        run: |
+          '## RETSAR engine preview' | Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          'These checks do not create a native Windows seat. A skipped branch is not a pass.' | Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          if ($env:RETSAR_CI_ROOT) {
+            $ciLog = Join-Path $env:RETSAR_CI_ROOT 'reports\ci-build-and-tests.log'
+            if (Test-Path -LiteralPath $ciLog) {
+              Get-Content -LiteralPath $ciLog |
+                Where-Object { $_ -match '^(TOTAL |CLI TOTAL |SKIP |PASS JSON)' } |
+                ForEach-Object { '- ' + $_ } |
+                Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            }
+          }

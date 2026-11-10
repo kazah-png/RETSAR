@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">RETSAR — original project mark</title>
+  <defs><linearGradient id="a" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#72E7C6"/><stop offset="1" stop-color="#95A9FF"/></linearGradient></defs>
+  <rect width="256" height="256" rx="48" fill="#101B2C"/>
+  <g fill="none" stroke="url(#a)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="28" y="61" width="79" height="62" rx="8"/>
+    <rect x="149" y="61" width="79" height="62" rx="8"/>
+    <path d="M67 123V145H47M67 145H88M188 123V145H169M188 145H209M67 160V187H188V160M128 187V164"/>
+    <path d="M128 130L145 140V160L128 170L111 160V140Z" fill="#101B2C"/>
+  </g>
+</svg>

@@ -1,0 +1,16 @@
+/build/
+/dist/
+/reports/
+/research/
+/private/
+/README.txt
+/ENGINE.txt
+/INVESTIGACION.txt
+/VALIDATION.txt
+*.user
+*.suo
+*.dmp
+*.rmv
+*.pfx
+.env
+.env.*
