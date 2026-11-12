@@ -2,9 +2,11 @@
 
 Progress is organized by capability and evidence. A compiled component, simulated transaction or existing session ID is not recorded as an operational native seat.
 
-## Child-session and remote-display preparation
+## Native child desktop and remote-display preparation
 
-The [child-session diagnostics](CHILD-SESSIONS.md) distinguish unsupported conclusions from actual API errors. On the observed Core-edition host, enabling failed without elevation, then succeeded after the user accepted Windows elevation; disabled state was restored and verified. No client connection or session creation occurred. The focused local suite added 100 status and 608 toggle checks using injected APIs only.
+The [preparation CI run](https://github.com/kazah-png/RETSAR/actions/runs/43291934940/job/131440125569) at [`1ef0a47`](https://github.com/kazah-png/RETSAR/commit/1ef0a475eaf803436373c6bd868faac465753347) passed **1,204 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. The remote driver was separately compiled and validated locally; this workflow does not install or execute it.
+
+The [child-session diagnostics](CHILD-SESSIONS.md) distinguish unsupported conclusions from actual API errors. On the observed Core-edition host, enabling failed without elevation, then succeeded after the user accepted Windows elevation; disabled state was restored and verified. That toggle did not connect a client. A subsequent original ActiveX client successfully configured explicit child mode, but its first real `Connect` returned `DISP_E_EXCEPTION` with underlying `E_INVALIDARG`. Disabled state was restored and the parent remained active. After explicitly enabling and reading back per-connection CredSSP support, a second experiment completed connection and logon, observed a new active child ID and rendered its desktop while the parent stayed active. This establishes a native child desktop on the tested Core host, not physical device isolation or a production lifecycle. The focused local suite added 100 status and 608 toggle checks using injected APIs only. The new client gate also passes 38 fake-interface checks; these do not establish a real connection.
 
 A separate [remote IDD source package](../lab/idd-remote-reference/README.md) now compiles with the reviewed MSVC/WDK toolchain and passes universal INF validation. It uses a distinct remote hardware ID and the OS remote-session device contract, with an explicit 1280x720 path. Source/manifest/patch/build-artifact checks passed separately. It is unsigned, unstaged and unexecuted; the console IDD runtime evidence does not transfer to it. No remote display or physical input success is claimed.
 

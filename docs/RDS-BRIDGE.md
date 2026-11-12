@@ -1,6 +1,6 @@
 # Native RDS bridge: SDK integration, not a working seat provider
 
-`src/rds/native_rds_bridge.cpp` is an original implementation of a small COM bridge against the Windows SDK's `wtsprotocol.h`. It constructs real SDK interface objects and invokes the supplied SDK callbacks. The automated harness supplies **MOCK callbacks in the same process**. No project test has connected this DLL to the Remote Desktop Services service or created a Windows session.
+`src/rds/native_rds_bridge.cpp` is an original implementation of a small COM bridge against the Windows SDK's `wtsprotocol.h`. It constructs real SDK interface objects and invokes the supplied SDK callbacks. The automated harness supplies **MOCK callbacks in the same process**. Separate opt-in experiments have now connected this DLL to actual TermService in the guarded disposable Server guest. The explicit connection attempt returned `E_INVALIDARG`; no Windows session was created. See [service-control evidence](SERVICE-CONTROL.md).
 
 The bridge remains separate from `WindowsBlockedExecutor`. Compiling it, obtaining a session notification, or receiving `S_OK` from a mock does not enable a native capability or satisfy P0.
 
@@ -27,7 +27,7 @@ There are exactly two explicit DLL exports: `DllGetClassObject` and `DllCanUnloa
 
 RETSAR's class identifier is `{E09044AF-A721-4D68-9F49-4527E9E51376}`. Its laboratory interface identifier is `{DB0368DF-9B48-4B88-96FB-84F02AE5137B}`. SDK interfaces use their SDK identifiers; the bridge does not reuse another provider's class.
 
-The laboratory interface is an **in-process contract**, not an IPC endpoint or an authorization boundary. A future service-side trigger must reach the particular listener instance receiving the RDS callback and must have its own authenticated admission and resource accounting. This bridge supplies neither that trigger nor an external broker. Instantiating a second manager in a test process would not reach the service's listener.
+The laboratory interface remains an **in-process contract**, not an authorization boundary. The separate [authenticated local channel](SERVICE-CONTROL.md) now reaches the actual service-owned listener through a bounded MTA worker in the exact guarded guest. It requires explicit opt-in and authenticates the caller before dispatch. Instantiating a second manager in a test process still does not reach that listener.
 
 `StartListen`, start, continuation, and explicit cancellation require an initialized process MTA. SDK callbacks retain their normal COM ownership contract. The bridge does not marshal callbacks across apartments.
 
@@ -59,7 +59,7 @@ The [BrokenConnection contract](https://learn.microsoft.com/en-us/windows/win32/
 
 Credential exchange, licensing transport, input and video handles, authentication, client monitor topology and virtual channels are not implemented. Those outputs are initialized and their methods return `E_NOTIMPL`; the IDD property interface is not advertised and returns `E_NOINTERFACE`. There are no successful placeholder credentials, license responses, device handles or display bindings.
 
-There is no network listener, service-side trigger, authenticated IPC, Remote IDD driver, input transport, external supervisor, native session ownership journal, or session teardown implementation. The bridge does not alter session concurrency policy, authentication policy, licensing enforcement, ASTER, graphics drivers or the host's sessions.
+There is no general network listener, input transport, native session ownership journal or session teardown implementation. The service trigger and authenticated IPC are guest-only experiments. A separate remote IDD source package compiles and validates, but it is not staged, loaded or integrated with this bridge. The bridge does not alter session concurrency policy, authentication policy, licensing enforcement, ASTER, graphics drivers or the host's sessions.
 
 The SDK identifies the RDS provider interfaces as supported server interfaces; it does not establish Windows 11 workstation support. Validation must first use an explicitly prepared separate environment compatible with the documented scenario. Its licensing and authentication must remain normal. A future successful RDS session would still require independent display, input, recovery and physical-seat validation described in [NATIVE-BACKEND.md](NATIVE-BACKEND.md).
 
@@ -69,6 +69,6 @@ The [integration-gaps review](RDS-INTEGRATION-GAPS.md) separates early service a
 
 The harness covers factory negotiation and lifetime, explicit admission, synchronous and delayed readiness, original failure propagation, full session identity observations, queue overflow, unsupported outputs, and cancellation at paused mock callbacks on MTA threads. It also tests `StopListen` during `OnConnected` and preservation of `BrokenConnection` failure. All callback outcomes are mock outcomes, not claims about an RDS service.
 
-The latest local `-Test -Lab -RdsLab` run compiled with `/W4 /WX` and passed **125 MOCK RDS checks**, including sixteen checks for the optional settings-interface contract and reference lifetime. Together with the existing suites it passed **242 checks**, plus independent JSON validation, with one pre-existing adversarial junction branch not exercised locally. This is contract and in-process concurrency evidence only. No service registration, native session, input transport, IDD or graphics presentation was exercised. [PROGRESS.md](PROGRESS.md) distinguishes this result from the earlier public CI revision.
+The historical local `-Test -Lab -RdsLab` baseline compiled with `/W4 /WX` and passed **125 MOCK RDS checks**, including sixteen checks for the optional settings-interface contract and reference lifetime. Together with the existing suites it passed **242 checks**, plus independent JSON validation, with one pre-existing adversarial junction branch not exercised locally. This is contract and in-process concurrency evidence only. No service registration, native session, input transport, IDD or graphics presentation was exercised. [PROGRESS.md](PROGRESS.md) distinguishes this result from the earlier public CI revision.
 
 Implementation is project-owned code against the public Windows SDK. No implementation from the Azure sample is copied. The sample is only a design reference: [Microsoft's source at commit `0b5a0bae`](https://github.com/Azure/Remote-Desktop-Services-Protocol-Sample/tree/0b5a0bae1cc1c2a667b5962bd7847d5181ae375f). Its incomplete transport and licensing methods are not copied as working behavior.

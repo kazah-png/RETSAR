@@ -48,8 +48,8 @@ try {
  }
  if($ChildSessionLab){
   New-Item -ItemType Directory -Force -Path "$base\dist\lab" | Out-Null
-  foreach($probe in @(@{source='child_session_probe';name='child-session-probe'},@{source='child_session_toggle_probe';name='child-session-toggle'})){
-   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\src\lab\$($probe.source).cpp" "/Fe:$base\dist\lab\RETSAR-$($probe.name).exe" /link /SUBSYSTEM:CONSOLE @libs wtsapi32.lib
+  foreach($probe in @(@{source='child_session_probe';name='child-session-probe'},@{source='child_session_toggle_probe';name='child-session-toggle'},@{source='child_session_client';name='child-session-client'})){
+   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\src\lab\$($probe.source).cpp" "/Fe:$base\dist\lab\RETSAR-$($probe.name).exe" /link /SUBSYSTEM:CONSOLE @libs wtsapi32.lib ole32.lib oleaut32.lib uuid.lib user32.lib gdi32.lib advapi32.lib
    if($LASTEXITCODE -ne 0){throw 'Child-session laboratory diagnostic compilation failed.'}
    # Help only: never query or change session state as part of a build.
    & "$base\dist\lab\RETSAR-$($probe.name).exe" --help
@@ -57,8 +57,8 @@ try {
   }
  }
  if($Test -or $ChildSessionLab){
-  foreach($contract in @('child_session_status','child_session_toggle')){
-   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\${contract}_tests.cpp" "/Fe:$base\build\RETSAR-${contract}-tests.exe" /link /SUBSYSTEM:CONSOLE @libs wtsapi32.lib
+  foreach($contract in @('child_session_status','child_session_toggle','child_session_client_gate')){
+   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\${contract}_tests.cpp" "/Fe:$base\build\RETSAR-${contract}-tests.exe" /link /SUBSYSTEM:CONSOLE @libs wtsapi32.lib ole32.lib oleaut32.lib uuid.lib user32.lib gdi32.lib advapi32.lib
    if($LASTEXITCODE -ne 0){throw "Child-session pure test compilation failed: $contract"}
    & "$base\build\RETSAR-${contract}-tests.exe"
    if($LASTEXITCODE -ne 0){throw "Child-session pure tests failed: $contract"}

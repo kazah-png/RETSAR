@@ -27,7 +27,7 @@ Verifiable plans · explicit ownership · persistent recovery</p>
 
 ## Current status
 
-**RETSAR 0.2.0-engine-preview cannot create a second real Windows seat yet.** It includes a C++17 transactional core, a durable journal and read-only diagnostics. The native provider remains blocked: interactive session creation, physical display assignment and independent input are still pending.
+**RETSAR 0.2.0-engine-preview cannot create a second real Windows seat yet.** It includes a C++17 transactional core, a durable journal and read-only diagnostics. A separate laboratory client has now opened an actual child desktop on the observed Windows Core host while its parent remained active. Production session lifecycle, physical display assignment and independent input are still pending.
 
 The goal is two independent seats on one computer, with explicit resource assignments. This preview makes the foundations of that engine available for review and testing. It is not a multiseat application ready for everyday use.
 
@@ -46,7 +46,7 @@ The goal is two independent seats on one computer, with explicit resource assign
 | Console virtual-display reference | [Guest lifecycle and frame acquisition observed](lab/idd-reference/RESULTS.md); cleanup verified after a cold boot; physical/session/input isolation unverified |
 | Server reference observation tools | Concurrent guest logons and a manual same-boot sign-out/cleanup cycle verified; helper observation timeout remains |
 | Remote IDD adaptation | [Source compiles and INF validates](lab/idd-remote-reference/README.md); no remote runtime test |
-| Child-session candidate | [Reversible setting test observed](docs/CHILD-SESSIONS.md); connection and target-edition support unverified |
+| Child-session client | [Native child desktop observed on the target Core host](docs/CHILD-SESSIONS.md), with the parent still active; physical isolation and application compatibility unverified |
 | Creation of a real Windows seat | **Not implemented** |
 | Independent physical display and keyboard/mouse | **Not implemented** |
 | Service, drivers and management interface | Pending |

@@ -21,3 +21,5 @@ The names and links recognize contributions to the development process. They do 
 ## Technical documentation
 
 The architecture cites primary Microsoft documentation for the APIs used. References support review of specific decisions; they do not replace Windows testing or independently demonstrate the viability of the pending multiseat provider.
+
+The [Anode child-client implementation](https://github.com/skulitom/Anode/blob/main/src/Anode/Daemon/RdpViewer.cs) was consulted to diagnose the explicit CredSSP requirement. RETSAR's OLE host and laboratory client are original code against Microsoft's documented interfaces; no Anode source or binary is redistributed.
