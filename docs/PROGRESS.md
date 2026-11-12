@@ -2,6 +2,14 @@
 
 Progress is organized by capability and evidence. A compiled component, simulated transaction or existing session ID is not recorded as an operational native seat.
 
+## Authenticated service-control increment
+
+The new [local control channel](SERVICE-CONTROL.md) reached the listener created by actual TermService in the disposable Server guest. A real explicit Start returned `E_INVALIDARG` (`0x80070057`) from `OnConnected`. No new user session or device isolation was observed. The service-restart capture initially missed delayed provider loading; a cold-start capture then recorded 34 provider events with zero reported loss. Exact owned registration, tracing and DLL cleanup was verified afterward.
+
+The local focused C++ suite passed **378 checks**: 125 existing bridge mocks, 31 control-protocol checks, 54 worker checks, 129 licensing-framing checks and 39 remote-display-contract checks. These are inert tests; the live guest observation is separate. PowerShell 5.1 passed **97 activation** and **87 boot-trace** pure checks for explicit control opt-in and exact cleanup, including compatibility with previous receipts. These new focused results do not replace the historical complete core/CLI baseline below.
+
+Review fixed stop-time callback retention and loss accounting. The worker tests exercise an actual fixture DLL remaining loaded while a fake callback is blocked, then unloading after stop and return. They do not claim that a stuck Windows callback can be forcibly canceled. The [licensing adapter](LICENSE-TRANSPORT.md) validates only transport framing; the genuine licensing engine, remote display driver and physical input backend are still missing.
+
 ## SDK bridge and laboratory supervision checkpoint
 
 The last complete local C++/CLI baseline passed **242 checks**, including **125 mock RDS checks**. The supervisor suite now has **46 separate inert Python tests**, and local guest-helper checks total **175**: 27 observer, nine reference-marker, 73 activation and 66 boot-trace checks. These helpers exercise pure logic and synthetic buffers; they do not run guest operations.
@@ -24,7 +32,7 @@ Rerunning the bootstrap inside that guest emitted `environment-verified` and the
 
 The laboratory supervisor now permits a private root on C: or D: while monitoring free space on both C: and the selected laboratory volume. Other volumes are rejected before filesystem access. This change applies only to the disposable laboratory; the core's C-only journal and CLI output policy remains unchanged.
 
-## Current evidence · 0.2.0-engine-preview
+## Current evidence Â· 0.2.0-engine-preview
 
 | Check | Latest local result | Verified public CI result (`8b5f425`) |
 | --- | --- | --- |
@@ -47,7 +55,7 @@ The laboratory supervisor now permits a private root on C: or D: while monitorin
 | x64 C++17 build with `/W4 /WX` | Passed | Passed |
 | Probe interactive mode | Executed inside the Server guest's RDP candidate; exported JSON and account SID comparison verified | **Not run** |
 
-The local adversarial test tried to convert its own temporary directory on C: into a junction targeting another temporary directory on C:. Windows rejected the mutation with error **5 — access denied**, so the redirected-child branch was not exercised locally and is not counted as passed. CI allowed and verified that branch, accounting for the one-check difference between the C++/CLI totals.
+The local adversarial test tried to convert its own temporary directory on C: into a junction targeting another temporary directory on C:. Windows rejected the mutation with error **5 â€” access denied**, so the redirected-child branch was not exercised locally and is not counted as passed. CI allowed and verified that branch, accounting for the one-check difference between the C++/CLI totals.
 
 Historical baselines: [`b4eb74e`](https://github.com/kazah-png/RETSAR/actions/runs/42802709727/job/129784014483) passed 227 C++/CLI checks and 16 Python tests in CI; the earlier core/probe-only [`27893ec`](https://github.com/kazah-png/RETSAR/actions/runs/42795998244) passed 117 checks locally and 118 in CI. Those checks are included in the current suite, not additional passes to add to its totals. Each linked run validates only its tested revision.
 

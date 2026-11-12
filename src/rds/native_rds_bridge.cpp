@@ -1,5 +1,6 @@
 #include "native_rds_bridge.hpp"
 #include "activation_trace.hpp"
+#include "lab_control_worker.hpp"
 #include <TraceLoggingProvider.h>
 #include <objbase.h>
 #include <algorithm>
@@ -8,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <string>
 
 
 namespace seats::rds::activation {
@@ -24,6 +26,13 @@ void write(const char* method,const char* phase,HRESULT result)noexcept{
         TraceLoggingString(method,"Method"),
         TraceLoggingString(phase,"Phase"),
         TraceLoggingUInt32(static_cast<ULONG>(result),"HResult"));
+    SetLastError(previousError);
+}
+void connectionInterface(REFIID iid)noexcept{
+    const auto previousError=GetLastError();
+    TraceLoggingWrite(provider,"ConnectionInterface",
+        TraceLoggingLevel(4),TraceLoggingKeyword(0x1),
+        TraceLoggingGuid(iid,"InterfaceId"));
     SetLastError(previousError);
 }
 void processAttach()noexcept{
@@ -90,6 +99,10 @@ struct BridgeState {
     ExperimentOutcome outcome{};
     SharedInterface<IWRdsProtocolListenerCallback> listener;
     SharedInterface<IWRdsProtocolConnectionCallback> connection;
+    // StopListen may not call RDS. An actual MTA control worker owns the later
+    // cancellation opportunity; preserve its callback until that call finishes.
+    bool controlWorkerPresent=false;
+    SharedInterface<IWRdsProtocolConnectionCallback> pendingStopConnection;
 
     HRESULT recordLocked(EventKind kind,HRESULT result=S_OK,const WRDS_SESSION_ID* session=nullptr){
         if(count==EventCapacity){++dropped;return queueFull;}
@@ -116,13 +129,18 @@ class Connection final:public IWRdsProtocolConnection {
 public:
     explicit Connection(std::shared_ptr<BridgeState> state):state_(std::move(state)){}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** out)override{
+        return activation::invoke("Connection.QueryInterface",[&]()->HRESULT{
+        activation::connectionInterface(iid);
         if(!out)return E_POINTER;*out=nullptr;
         if(iid!=__uuidof(IUnknown)&&iid!=__uuidof(IWRdsProtocolConnection))return E_NOINTERFACE;
         *out=static_cast<IWRdsProtocolConnection*>(this);AddRef();return S_OK;
+
+        });
     }
     ULONG STDMETHODCALLTYPE AddRef()override{return lifetime_.add();}
     ULONG STDMETHODCALLTYPE Release()override{const auto left=--lifetime_.references;if(!left)delete this;return left;}
     HRESULT STDMETHODCALLTYPE GetLogonErrorRedirector(IWRdsProtocolLogonErrorRedirector** out)override{
+        return activation::invoke("Connection.GetLogonErrorRedirector",[&]()->HRESULT{
         NotificationScope scope;if(!out)return E_POINTER;*out=nullptr;
         return boundary([&]()->HRESULT{
             std::lock_guard lock(state_->mutex);
@@ -132,89 +150,161 @@ public:
             // Documented opt-out of error redirection. Never call OnReady here.
             return E_NOTIMPL;
         });
+
+        });
     }
     HRESULT STDMETHODCALLTYPE AcceptConnection()override{
+        return activation::invoke("Connection.AcceptConnection",[&]()->HRESULT{
         NotificationScope scope;return boundary([&]()->HRESULT{
             std::lock_guard lock(state_->mutex);
             return state_->consumed&&state_->listening&&!state_->cancelled&&!state_->closed?S_OK:HRESULT_FROM_WIN32(ERROR_CANCELLED);
         });
+
+        });
     }
     HRESULT STDMETHODCALLTYPE GetClientData(WRDS_CLIENT_DATA* out)override{
+        return activation::invoke("Connection.GetClientData",[&]()->HRESULT{
         if(!out)return E_POINTER;*out={};
         constexpr wchar_t protocol[]=L"RETSAR";
         static_assert(sizeof(protocol)<=sizeof(out->ProtocolName));
         std::copy(std::begin(protocol),std::end(protocol),out->ProtocolName);
         out->fInheritAutoLogon=FALSE;out->fUsingSavedCreds=FALSE;out->fNoAudioPlayback=TRUE;
         return S_OK;
+
+        });
     }
     HRESULT STDMETHODCALLTYPE GetClientMonitorData(UINT* count,UINT* primary)override{
+        return activation::invoke("Connection.GetClientMonitorData",[&]()->HRESULT{
         if(count)*count=0;if(primary)*primary=0;return count&&primary?E_NOTIMPL:E_POINTER;
+
+        });
     }
     HRESULT STDMETHODCALLTYPE GetUserCredentials(WRDS_USER_CREDENTIAL* out)override{
+        return activation::invoke("Connection.GetUserCredentials",[&]()->HRESULT{
         if(!out)return E_POINTER;*out={};return E_NOTIMPL;
+
+        });
     }
     HRESULT STDMETHODCALLTYPE GetLicenseConnection(IWRdsProtocolLicenseConnection** out)override{
+        return activation::invoke("Connection.GetLicenseConnection",[&]()->HRESULT{
         if(!out)return E_POINTER;*out=nullptr;return E_NOTIMPL;
+
+        });
     }
     HRESULT STDMETHODCALLTYPE AuthenticateClientToSession(WRDS_SESSION_ID* out)override{
+        return activation::invoke("Connection.AuthenticateClientToSession",[&]()->HRESULT{
         if(!out)return E_POINTER;*out={};return E_NOTIMPL;
+
+        });
     }
     HRESULT STDMETHODCALLTYPE NotifySessionId(WRDS_SESSION_ID* session,HANDLE_PTR)override{
+        return activation::invoke("Connection.NotifySessionId",[&]()->HRESULT{
         return sessionEvent(EventKind::SessionAssigned,session);
+
+        });
     }
     HRESULT STDMETHODCALLTYPE GetInputHandles(HANDLE_PTR* keyboard,HANDLE_PTR* mouse,HANDLE_PTR* beep)override{
+        return activation::invoke("Connection.GetInputHandles",[&]()->HRESULT{
         if(keyboard)*keyboard=0;if(mouse)*mouse=0;if(beep)*beep=0;
         return keyboard&&mouse&&beep?E_NOTIMPL:E_POINTER;
+
+        });
     }
     HRESULT STDMETHODCALLTYPE GetVideoHandle(HANDLE_PTR* out)override{
+        return activation::invoke("Connection.GetVideoHandle",[&]()->HRESULT{
         if(!out)return E_POINTER;*out=0;return E_NOTIMPL;
+
+        });
     }
-    HRESULT STDMETHODCALLTYPE ConnectNotify(ULONG)override{return event(EventKind::ConnectObserved);}
-    HRESULT STDMETHODCALLTYPE IsUserAllowedToLogon(ULONG,HANDLE_PTR,WCHAR*,WCHAR*)override{return E_NOTIMPL;}
+    HRESULT STDMETHODCALLTYPE ConnectNotify(ULONG)override{
+        return activation::invoke("Connection.ConnectNotify",[&]()->HRESULT{return event(EventKind::ConnectObserved);
+        });
+    }
+    HRESULT STDMETHODCALLTYPE IsUserAllowedToLogon(ULONG,HANDLE_PTR,WCHAR*,WCHAR*)override{
+        return activation::invoke("Connection.IsUserAllowedToLogon",[&]()->HRESULT{return E_NOTIMPL;
+        });
+    }
     HRESULT STDMETHODCALLTYPE SessionArbitrationEnumeration(HANDLE_PTR,BOOL,ULONG*,ULONG* count)override{
+        return activation::invoke("Connection.SessionArbitrationEnumeration",[&]()->HRESULT{
         if(!count)return E_POINTER;*count=0;return E_NOTIMPL;
+
+        });
     }
     HRESULT STDMETHODCALLTYPE LogonNotify(HANDLE_PTR,WCHAR*,WCHAR*,WRDS_SESSION_ID* session,PWRDS_CONNECTION_SETTINGS)override{
+        return activation::invoke("Connection.LogonNotify",[&]()->HRESULT{
         // Account strings and token handles are deliberately not read or stored.
         return sessionEvent(EventKind::LogonObserved,session);
+
+        });
     }
-    HRESULT STDMETHODCALLTYPE PreDisconnect(ULONG reason)override{return event(EventKind::PreDisconnectObserved,static_cast<HRESULT>(reason));}
-    HRESULT STDMETHODCALLTYPE DisconnectNotify()override{return event(EventKind::DisconnectObserved);}
+    HRESULT STDMETHODCALLTYPE PreDisconnect(ULONG reason)override{
+        return activation::invoke("Connection.PreDisconnect",[&]()->HRESULT{return event(EventKind::PreDisconnectObserved,static_cast<HRESULT>(reason));
+        });
+    }
+    HRESULT STDMETHODCALLTYPE DisconnectNotify()override{
+        return activation::invoke("Connection.DisconnectNotify",[&]()->HRESULT{return event(EventKind::DisconnectObserved);
+        });
+    }
     HRESULT STDMETHODCALLTYPE Close()override{
+        return activation::invoke("Connection.Close",[&]()->HRESULT{
         NotificationScope scope;
         return boundary([&]()->HRESULT{
-            SharedInterface<IWRdsProtocolConnectionCallback> release;
+            SharedInterface<IWRdsProtocolConnectionCallback> release,releaseStop;
             HRESULT result;
             {
                 std::lock_guard lock(state_->mutex);
                 if(state_->closed)return S_OK;
                 state_->closed=true;release=std::move(state_->connection);
+                releaseStop=std::move(state_->pendingStopConnection);
                 result=state_->recordLocked(EventKind::ConnectionClosed);
             }
             // Release only this connection's callback, outside the state lock.
             return result;
         });
+
+        });
     }
     HRESULT STDMETHODCALLTYPE GetProtocolStatus(WRDS_PROTOCOL_STATUS* out)override{
+        return activation::invoke("Connection.GetProtocolStatus",[&]()->HRESULT{
         if(!out)return E_POINTER;*out={};return E_NOTIMPL;
+
+        });
     }
     HRESULT STDMETHODCALLTYPE GetLastInputTime(ULONG64* out)override{
+        return activation::invoke("Connection.GetLastInputTime",[&]()->HRESULT{
         if(!out)return E_POINTER;*out=0;return E_NOTIMPL;
+
+        });
     }
-    HRESULT STDMETHODCALLTYPE SetErrorInfo(ULONG error)override{return event(EventKind::ErrorObserved,static_cast<HRESULT>(error));}
+    HRESULT STDMETHODCALLTYPE SetErrorInfo(ULONG error)override{
+        return activation::invoke("Connection.SetErrorInfo",[&]()->HRESULT{return event(EventKind::ErrorObserved,static_cast<HRESULT>(error));
+        });
+    }
     HRESULT STDMETHODCALLTYPE CreateVirtualChannel(CHAR*,BOOL,ULONG,ULONG_PTR* out)override{
+        return activation::invoke("Connection.CreateVirtualChannel",[&]()->HRESULT{
         if(!out)return E_POINTER;*out=0;return E_NOTIMPL;
+
+        });
     }
     HRESULT STDMETHODCALLTYPE QueryProperty(GUID,ULONG,ULONG outCount,PWRDS_PROPERTY_VALUE,PWRDS_PROPERTY_VALUE out)override{
+        return activation::invoke("Connection.QueryProperty",[&]()->HRESULT{
         if(outCount&&!out)return E_POINTER;
         if(outCount>256)return E_INVALIDARG;
         for(ULONG i=0;i<outCount;++i)out[i]={};
         return E_NOTIMPL;
+
+        });
     }
     HRESULT STDMETHODCALLTYPE GetShadowConnection(IWRdsProtocolShadowConnection** out)override{
+        return activation::invoke("Connection.GetShadowConnection",[&]()->HRESULT{
         if(!out)return E_POINTER;*out=nullptr;return E_NOTIMPL;
+
+        });
     }
-    HRESULT STDMETHODCALLTYPE NotifyCommandProcessCreated(ULONG)override{return event(EventKind::CommandProcessObserved);}
+    HRESULT STDMETHODCALLTYPE NotifyCommandProcessCreated(ULONG)override{
+        return activation::invoke("Connection.NotifyCommandProcessCreated",[&]()->HRESULT{return event(EventKind::CommandProcessObserved);
+        });
+    }
 };
 
 class Listener final:public IWRdsProtocolListener,public IRetsarRdsLabControl {
@@ -226,14 +316,51 @@ class Listener final:public IWRdsProtocolListener,public IRetsarRdsLabControl {
     // Notifications never acquire it and never wait for an outbound call.
     std::mutex operationMutex_;
 
+    const std::wstring listenerName_;
+    std::mutex controlMutex_;
+    std::shared_ptr<lab::Worker> worker_;
+    std::shared_ptr<lab::Server> server_;
+
+    void stopServiceControl() noexcept {
+        std::shared_ptr<lab::Worker> worker;std::shared_ptr<lab::Server> server;
+        {std::lock_guard lock(controlMutex_);worker=std::move(worker_);server=std::move(server_);}
+        if(server)server->RequestStop();
+        if(worker)worker->RequestStop();
+        // No joins or outbound RDS calls on a service notification thread.
+    }
+    void startServiceControl() noexcept {
+        if(listenerName_!=lab::ListenerName)return;
+        lab::Config config{};
+        const auto enabled=lab::ReadEnabledGuestConfig(config);
+        if(enabled!=S_OK){activation::write("LabControl.Gate","return",enabled);return;}
+        std::shared_ptr<lab::Worker> worker;std::shared_ptr<lab::Server> server;
+        auto result=lab::StartWorker(this,worker);
+        if(SUCCEEDED(result)){
+            std::lock_guard stateLock(state_->mutex);state_->controlWorkerPresent=true;
+        }
+        if(SUCCEEDED(result))result=lab::StartServer(config,worker,server);
+        activation::write("LabControl.Start","return",result);
+        if(FAILED(result)){if(worker)worker->RequestStop();return;}
+        bool stop=false;
+        {
+            std::lock_guard controlLock(controlMutex_);
+            std::lock_guard stateLock(state_->mutex);
+            stop=!state_->listening||state_->cancelled||state_->closed;
+            if(!stop){worker_=worker;server_=server;}
+        }
+        // A concurrent StopListen must not leave a late-published endpoint.
+        if(stop){server->RequestStop();worker->RequestStop();}
+    }
+
     HRESULT cancelOutbound(SharedInterface<IWRdsProtocolConnectionCallback> lateCallback={}){
-        SharedInterface<IWRdsProtocolConnectionCallback> callback;
+        SharedInterface<IWRdsProtocolConnectionCallback> callback,releaseStop;
         {
             std::lock_guard lock(state_->mutex);
             state_->cancelled=true;
             state_->outcome.cancellationRequested=TRUE;
             if(state_->brokenSent)return state_->brokenResult;
-            if(!state_->closed)callback=lateCallback?lateCallback:state_->connection;
+            if(!state_->closed)callback=lateCallback?lateCallback:
+                (state_->connection?state_->connection:state_->pendingStopConnection);
             if(!callback){
                 // StopListen may have released a previously accepted callback.
                 // Absence of that handle does not prove cancellation succeeded.
@@ -248,7 +375,10 @@ class Listener final:public IWRdsProtocolListener,public IRetsarRdsLabControl {
             std::lock_guard lock(state_->mutex);
             state_->brokenResult=result;state_->outcome.cancellationResult=result;
             (void)state_->recordLocked(EventKind::BrokenConnectionReturned,result);
+            releaseStop=std::move(state_->pendingStopConnection);
         }
+        // Release the stop-time reservation only after the outgoing callback,
+        // outside the state lock (Release itself may invoke COM code).
         return result;
     }
     bool cancellationPending(){
@@ -299,15 +429,18 @@ class Listener final:public IWRdsProtocolListener,public IRetsarRdsLabControl {
         return finish(FAILED(result)?result:recorded,out);
     }
 public:
+    explicit Listener(const wchar_t* name):listenerName_(name){}
     ~Listener(){
+        stopServiceControl();
         // Drop our references even when a laboratory caller omits StopListen.
         // No implicit BrokenConnection or session action is performed here.
         SharedInterface<IWRdsProtocolListenerCallback> listener;
-        SharedInterface<IWRdsProtocolConnectionCallback> connection;
+        SharedInterface<IWRdsProtocolConnectionCallback> connection,pendingStop;
         {
             std::lock_guard lock(state_->mutex);
             state_->listening=false;state_->cancelled=true;
             listener=std::move(state_->listener);connection=std::move(state_->connection);
+            pendingStop=std::move(state_->pendingStopConnection);
         }
     }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** out)override{
@@ -332,12 +465,17 @@ public:
             const auto apartment=requireMta();if(FAILED(apartment))return apartment;
             return boundary([&]()->HRESULT{
                 auto retained=retain(callback);
-                std::lock_guard lock(state_->mutex);
-                if(state_->listening||state_->consumed)return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
-                if(state_->cancelled)return HRESULT_FROM_WIN32(ERROR_CANCELLED);
-                const auto recorded=state_->recordLocked(EventKind::Listening);
-                if(FAILED(recorded))return recorded;
-                state_->listener=std::move(retained);state_->listening=true;return S_OK;
+                {
+                    std::lock_guard lock(state_->mutex);
+                    if(state_->listening||state_->consumed)return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
+                    if(state_->cancelled)return HRESULT_FROM_WIN32(ERROR_CANCELLED);
+                    const auto recorded=state_->recordLocked(EventKind::Listening);
+                    if(FAILED(recorded))return recorded;
+                    state_->listener=std::move(retained);state_->listening=true;
+                }
+                // Explicit owned-guest opt-in only. Startup never requests a
+                // connection: only an authenticated controller can enqueue Start.
+                startServiceControl();return S_OK;
             });
         });
     }
@@ -351,9 +489,13 @@ public:
                 {
                     std::lock_guard lock(state_->mutex);
                     state_->listening=false;state_->cancelled=true;
-                    listener=std::move(state_->listener);connection=std::move(state_->connection);
+                    listener=std::move(state_->listener);
+                    if(state_->controlWorkerPresent&&!state_->brokenSent&&!state_->closed&&state_->connection)
+                        state_->pendingStopConnection=std::move(state_->connection);
+                    else connection=std::move(state_->connection);
                     recorded=state_->recordLocked(EventKind::ListenerStopped);
                 }
+                stopServiceControl();
                 std::shared_ptr<Connection> owned;
                 {std::lock_guard lock(ownedMutex_);owned=std::move(ownedConnection_);}
                 // No outbound RDS call from this notification and no session cleanup.
@@ -494,7 +636,7 @@ public:
         return activation::invoke("Manager.CreateListener",[&]()->HRESULT{
             NotificationScope scope;if(!out)return E_POINTER;*out=nullptr;
             if(!name||!*name)return E_INVALIDARG;
-            return boundary([&]()->HRESULT{*out=new Listener();return S_OK;});
+            return boundary([&]()->HRESULT{*out=new Listener(name);return S_OK;});
         });
     }
     HRESULT STDMETHODCALLTYPE NotifyServiceStateChange(WRDS_SERVICE_STATE*)override{

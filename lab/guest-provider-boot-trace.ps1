@@ -141,16 +141,27 @@ function Get-BootKeyShape([string]$Path) {
     } finally {$key.Dispose()}
 }
 function Assert-ActivationRegistration {
+    # Legacy activation receipts did not expose a connection controller.
+    $controlEnabled=$false
+    $controlProperty=$activation.PSObject.Properties['connectionControlEnabled']
+    if($null -ne $controlProperty) {
+        if($controlProperty.Value -isnot [bool]) {throw 'Activation connection-control flag must be a Boolean.'}
+        $controlEnabled=$controlProperty.Value
+    }
     $expected=[ordered]@{values=@([ordered]@{name='RETSARRunId';kind='String';data=$activation.runId});
         children=@([ordered]@{name='InprocServer32';shape=[ordered]@{values=@(
             [ordered]@{name='';kind='String';data=$dll},
             [ordered]@{name='ThreadingModel';kind='String';data='Free'});children=@()}})}
     $actual=Get-BootKeyShape ('SOFTWARE\Classes\CLSID\'+$classId)
     if(($actual|ConvertTo-Json -Depth 10 -Compress) -cne ($expected|ConvertTo-Json -Depth 10 -Compress)) {throw 'The provider COM registration changed.'}
-    $expected=[ordered]@{values=@(
+    $listenerValues=@(
         [ordered]@{name='fEnableWinStation';kind='DWord';data=1},
-        [ordered]@{name='LoadableProtocol_Object';kind='String';data=$classId},
-        [ordered]@{name='RETSARRunId';kind='String';data=$activation.runId});children=@()}
+        [ordered]@{name='LoadableProtocol_Object';kind='String';data=$classId})
+    if($controlEnabled) {
+        $listenerValues+=[ordered]@{name='RETSARControlEnabled';kind='DWord';data=1}
+    }
+    $listenerValues+=[ordered]@{name='RETSARRunId';kind='String';data=$activation.runId}
+    $expected=[ordered]@{values=$listenerValues;children=@()}
     $actual=Get-BootKeyShape 'SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RETSAR-Lab'
     if(($actual|ConvertTo-Json -Depth 10 -Compress) -cne ($expected|ConvertTo-Json -Depth 10 -Compress)) {throw 'The provider listener registration changed.'}
 }

@@ -6,6 +6,7 @@ namespace seats::rds::activation {
 // observation channel only; it must not influence COM outputs or HRESULTs.
 void write(const char* method,const char* phase,HRESULT result)noexcept;
 void processAttach()noexcept;
+void connectionInterface(REFIID iid)noexcept;
 void processDetach()noexcept;
 
 template<size_t Length,class Function>

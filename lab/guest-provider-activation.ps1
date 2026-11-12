@@ -1,5 +1,5 @@
 #requires -Version 5.1
-# Opt-in activation-only experiment INSIDE the disposable QEMU Server guest.
+# Opt-in activation experiment INSIDE the disposable QEMU Server guest.
 # Never run on an everyday host. No connection, account, driver or seat is created.
 [CmdletBinding()]
 param(
@@ -7,6 +7,7 @@ param(
     [switch]$GuestExperimentApproved,
     [switch]$RestartGuestService,
     [switch]$GuestManagementSession,
+    [switch]$EnableConnectionControl,
     [ValidatePattern('^[A-Fa-f0-9]{64}$')][string]$ExpectedDllSha256
 )
 Set-StrictMode -Version Latest
@@ -18,7 +19,20 @@ function Assert-ActivationLeaf([string]$Path) {
         throw 'Only the fixed guest activation directory and known leaf files are permitted.'
     }
 }
+function Get-ConnectionControlEnabled($Receipt) {
+    # Receipts written before the opt-in existed are activation-only.
+    $property = $Receipt.PSObject.Properties['connectionControlEnabled']
+    if ($null -eq $property) { return $false }
+    if ($property.Value -isnot [bool]) { throw 'Connection-control receipt flag must be a Boolean.' }
+    return $property.Value
+}
+function Assert-ActivationOptions([string]$RequestedAction,[bool]$ControlSwitchPresent) {
+    if ($ControlSwitchPresent -and $RequestedAction -cne 'Prepare') {
+        throw '-EnableConnectionControl is accepted only with Prepare.'
+    }
+}
 function Assert-ActivationReceipt($Receipt) {
+    $null = Get-ConnectionControlEnabled $Receipt
     $parsed = [guid]::Empty
     if ($Receipt.schema -cne 'retsar.provider-activation.v1' -or
         ![guid]::TryParseExact([string]$Receipt.runId,'N',[ref]$parsed) -or
@@ -89,6 +103,7 @@ function Assert-RegistryShape($Actual, $Expected) {
     }
 }
 
+Assert-ActivationOptions $Action ($PSBoundParameters.ContainsKey('EnableConnectionControl'))
 if (!$GuestExperimentApproved) { throw 'Explicit -GuestExperimentApproved is required.' }
 if ($env:COMPUTERNAME -cne 'RETSARLAB' -or ![Environment]::Is64BitProcess) {
     throw 'Requires 64-bit Windows PowerShell inside RETSARLAB.'
@@ -316,9 +331,13 @@ function Expected-ClassShape {
                 [ordered]@{name='ThreadingModel';kind='String';data='Free'});children=@()}})}
 }
 function Expected-ListenerShape {
-    [ordered]@{values=@([ordered]@{name='fEnableWinStation';kind='DWord';data=1},
-        [ordered]@{name='LoadableProtocol_Object';kind='String';data=$classId},
-        [ordered]@{name='RETSARRunId';kind='String';data=$script:receipt.runId});children=@()}
+    $values = @([ordered]@{name='fEnableWinStation';kind='DWord';data=1},
+        [ordered]@{name='LoadableProtocol_Object';kind='String';data=$classId})
+    if (Get-ConnectionControlEnabled $script:receipt) {
+        $values += [ordered]@{name='RETSARControlEnabled';kind='DWord';data=1}
+    }
+    $values += [ordered]@{name='RETSARRunId';kind='String';data=$script:receipt.runId}
+    [ordered]@{values=$values;children=@()}
 }
 try {
     try { $locked = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $locked = $true }
@@ -366,6 +385,7 @@ try {
             providerGuid=$providerGuid;traceName=('RETSAR-Activation-' + $runId);dllSha256=$dllHash;
             rdpTcpSha256=(Get-RdpHash);consoleId=$consoleId;baseline=$baseline;
             callerSessionId=$callerSessionId;managementSession=[bool]$GuestManagementSession;
+            connectionControlEnabled=[bool]$EnableConnectionControl;
             serviceBefore=(Get-ServiceEvidence);serviceAfter=$null;serviceAfterCleanup=$null;
             dependencies=@((Get-Service -Name TermService).DependentServices | ForEach-Object {
                 [ordered]@{name=$_.Name;status=$_.Status.ToString()}
@@ -390,6 +410,11 @@ try {
             $key.SetValue('fEnableWinStation',1,[Microsoft.Win32.RegistryValueKind]::DWord)
             $key.SetValue('LoadableProtocol_Object',$classId,[Microsoft.Win32.RegistryValueKind]::String)
             $key.SetValue('RETSARRunId',$runId,[Microsoft.Win32.RegistryValueKind]::String)
+            # Explicit lab opt-in only. Enabling the owned controller does not
+            # itself request a connection or assert that a session was created.
+            if ($script:receipt.connectionControlEnabled) {
+                $key.SetValue('RETSARControlEnabled',1,[Microsoft.Win32.RegistryValueKind]::DWord)
+            }
         } finally { $key.Dispose() }
         Assert-RegistryShape (Get-KeyShape $classKey) (Expected-ClassShape)
         Assert-RegistryShape (Get-KeyShape $listenerKey) (Expected-ListenerShape)

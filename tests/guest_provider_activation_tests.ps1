@@ -6,11 +6,11 @@ $source = Join-Path (Split-Path -Parent $PSScriptRoot) 'lab\guest-provider-activ
 $tokens=$null; $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($source,[ref]$tokens,[ref]$errors)
 if ($errors.Count) { throw ($errors.Message -join '; ') }
-$names=@('Assert-ActivationLeaf','Assert-ActivationReceipt','Assert-OnlyGuestConsole','Assert-RegistryShape','Assert-CallerSession','Expected-ListenerShape','New-ActivationDllSecurity')
+$names=@('Assert-ActivationLeaf','Assert-ActivationReceipt','Assert-OnlyGuestConsole','Assert-RegistryShape','Assert-CallerSession','Expected-ListenerShape','New-ActivationDllSecurity','Get-ConnectionControlEnabled','Assert-ActivationOptions')
 foreach($name in $names) {
     $functions=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
     if($functions.Count -ne 1) { throw ('Missing or duplicate pure validator: '+$name) }
-    # Only the seven reviewed function declarations are evaluated.
+    # Only the nine reviewed function declarations are evaluated.
     . ([scriptblock]::Create($functions[0].Extent.Text))
 }
 $script:checks=0
@@ -60,6 +60,37 @@ $valid=[pscustomobject][ordered]@{
     classId='{E09044AF-A721-4D68-9F49-4527E9E51376}';listener='RETSAR-Lab'
 }
 Accept 'Exact ownership receipt' { Assert-ActivationReceipt $valid }
+if((Get-ConnectionControlEnabled $valid) -ne $false) {throw 'Legacy receipt must remain activation-only.'}
+Pass 'Legacy receipt without control flag is disabled'
+foreach($enabled in @($false,$true)) {
+    $controlReceipt=$valid | ConvertTo-Json | ConvertFrom-Json
+    $controlReceipt | Add-Member -NotePropertyName connectionControlEnabled -NotePropertyValue $enabled
+    Assert-ActivationReceipt $controlReceipt
+    if((Get-ConnectionControlEnabled $controlReceipt) -ne $enabled) {throw 'Boolean control flag was changed.'}
+    Pass ('Boolean control receipt '+$enabled)
+}
+foreach($invalidControl in @($null,0,1,'false','true',@{})) {
+    $badControl=$valid | ConvertTo-Json | ConvertFrom-Json
+    $badControl | Add-Member -NotePropertyName connectionControlEnabled -NotePropertyValue $invalidControl
+    Reject 'Non-Boolean control receipt flag' {Assert-ActivationReceipt $badControl}
+}
+Accept 'Prepare without control switch' {Assert-ActivationOptions 'Prepare' $false}
+Accept 'Prepare with explicit control switch' {Assert-ActivationOptions 'Prepare' $true}
+foreach($requestedAction in @('Collect','Cleanup')) {
+    Accept ($requestedAction+' without control switch') {Assert-ActivationOptions $requestedAction $false}
+    Reject ($requestedAction+' cannot specify control switch even as false') {Assert-ActivationOptions $requestedAction $true}
+}
+$controlParameters=@($ast.ParamBlock.Parameters | Where-Object {$_.Name.VariablePath.UserPath -ceq 'EnableConnectionControl'})
+if($controlParameters.Count -ne 1 -or $controlParameters[0].StaticType -ne [Management.Automation.SwitchParameter]) {
+    throw 'Connection control must be one explicit switch parameter.'
+}
+Pass 'Connection-control parameter is a switch'
+$optionGuards=@($ast.FindAll({param($node)
+    $node -is [Management.Automation.Language.CommandAst] -and
+    $node.Extent.Text -ceq 'Assert-ActivationOptions $Action ($PSBoundParameters.ContainsKey(''EnableConnectionControl''))'
+},$true))
+if($optionGuards.Count -ne 1) {throw 'The option guard must check switch presence once before guest operations.'}
+Pass 'Control switch presence is validated, including an explicitly false switch'
 $changes=@(
     @('schema','other'),
     @('runId','invalid'),
@@ -187,6 +218,49 @@ $listener=Expected-ListenerShape
 if($listener.values.Count -ne 3 -or $listener.values[0].name -cne 'fEnableWinStation' -or
     $listener.values[0].kind -cne 'DWord' -or $listener.values[0].data -ne 1) {throw 'Listener ownership shape must include exactly the enabled DWORD.'}
 Pass 'Owned listener shape includes fEnableWinStation DWORD1'
+$activationOnlyListener=$listener
+$falseControl=$valid | ConvertTo-Json | ConvertFrom-Json
+$falseControl | Add-Member -NotePropertyName connectionControlEnabled -NotePropertyValue $false
+$script:receipt=$falseControl
+Assert-RegistryShape (Expected-ListenerShape) $activationOnlyListener
+Pass 'Explicit false receipt preserves the exact activation-only key shape'
+$trueControl=$valid | ConvertTo-Json | ConvertFrom-Json
+$trueControl | Add-Member -NotePropertyName connectionControlEnabled -NotePropertyValue $true
+$script:receipt=$trueControl
+$controlListener=Expected-ListenerShape
+if($controlListener.values.Count -ne 4 -or $controlListener.values[2].name -cne 'RETSARControlEnabled' -or
+    $controlListener.values[2].kind -cne 'DWord' -or $controlListener.values[2].data -ne 1 -or
+    $controlListener.values[3].name -cne 'RETSARRunId') {throw 'Opt-in listener must add only its exact control DWORD1.'}
+Pass 'Enabled receipt owns exactly one additional control DWORD'
+Reject 'Enabled receipt cannot remove activation-only shape' {Assert-RegistryShape $activationOnlyListener $controlListener}
+Reject 'Disabled receipt cannot remove enabled control shape' {Assert-RegistryShape $controlListener $activationOnlyListener}
+$alteredControl=$controlListener | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+$alteredControl.values[2].data=0
+Reject 'Changed control value prevents cleanup' {Assert-RegistryShape $alteredControl $controlListener}
+$alteredControl.values[2].data=1
+$alteredControl.values[2].kind='String'
+Reject 'Changed control kind prevents cleanup' {Assert-RegistryShape $alteredControl $controlListener}
+$script:receipt=$valid
+$controlWrites=@($ast.FindAll({param($node)
+    $node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+    $node.Member -is [Management.Automation.Language.StringConstantExpressionAst] -and
+    $node.Member.Value -ceq 'SetValue' -and $node.Arguments.Count -eq 3 -and
+    $node.Arguments[0] -is [Management.Automation.Language.StringConstantExpressionAst] -and
+    $node.Arguments[0].Value -ceq 'RETSARControlEnabled'
+},$true))
+if($controlWrites.Count -ne 1 -or $controlWrites[0].Arguments[1].Extent.Text -cne '1' -or
+    $controlWrites[0].Arguments[2].Extent.Text -cne '[Microsoft.Win32.RegistryValueKind]::DWord') {
+    throw 'Control enable write must be one literal DWORD1.'
+}
+$controlGuard=$controlWrites[0].Parent
+while($null -ne $controlGuard -and $controlGuard -isnot [Management.Automation.Language.IfStatementAst]) {
+    $controlGuard=$controlGuard.Parent
+}
+if($null -eq $controlGuard -or $controlGuard.Clauses.Count -ne 1 -or
+    $controlGuard.Clauses[0].Item1.Extent.Text -cne '$script:receipt.connectionControlEnabled') {
+    throw 'Control key write must be gated by the saved Boolean opt-in.'
+}
+Pass 'Control registry write is conditional on the saved opt-in receipt'
 $writes=@($ast.FindAll({param($node)
     $node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
     $node.Member -is [Management.Automation.Language.StringConstantExpressionAst] -and

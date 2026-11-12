@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/retsar-banner.svg" alt="RETSAR — Runtime Environment for Terminal Sharing and Allocation of Resources. Engine preview." width="100%">
+  <img src="assets/retsar-banner.svg" alt="RETSAR â€” Runtime Environment for Terminal Sharing and Allocation of Resources. Engine preview." width="100%">
 </p>
 
 <p align="center">
@@ -10,17 +10,17 @@
 </p>
 
 <p align="center"><b>An open core for independent Windows seats.</b><br>
-Verifiable plans · explicit ownership · persistent recovery</p>
+Verifiable plans Â· explicit ownership Â· persistent recovery</p>
 
 <p align="center">
-  <a href="#getting-started">Build</a> ·
-  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
-  <a href="docs/NATIVE-BACKEND.md">Native backend research</a> ·
-  <a href="docs/RDS-BRIDGE.md">SDK bridge</a> ·
-  <a href="docs/RDS-INTEGRATION-GAPS.md">Integration gaps</a> ·
-  <a href="lab/README.md">Isolated laboratory</a> ·
-  <a href="docs/ROADMAP.md">Roadmap</a> ·
-  <a href="docs/PROGRESS.md">Verified progress</a> ·
+  <a href="#getting-started">Build</a> Â·
+  <a href="docs/ARCHITECTURE.md">Architecture</a> Â·
+  <a href="docs/NATIVE-BACKEND.md">Native backend research</a> Â·
+  <a href="docs/RDS-BRIDGE.md">SDK bridge</a> Â·
+  <a href="docs/RDS-INTEGRATION-GAPS.md">Integration gaps</a> Â·
+  <a href="lab/README.md">Isolated laboratory</a> Â·
+  <a href="docs/ROADMAP.md">Roadmap</a> Â·
+  <a href="docs/PROGRESS.md">Verified progress</a> Â·
   <a href="ACKNOWLEDGEMENTS.md">Acknowledgements</a>
 </p>
 
@@ -36,7 +36,9 @@ The goal is two independent seats on one computer, with explicit resource assign
 | Transactional planning, reservations, startup and teardown | Implemented in the core; effects tested with a simulated provider |
 | Journal, ownership receipts and restart recovery | Implemented and tested |
 | Separate laboratory seat probe | Executed inside a Server RDP candidate; own-process identity and software rendering observed |
-| Optional RDS SDK bridge | TermService loaded the provider and started its listener in the Server guest; connection and session creation remain unimplemented |
+| Optional RDS SDK bridge | An authenticated controller reached the actual service listener; Windows rejected the connection with `0x80070057`; no session was created |
+| Guest service control | Local authenticated pipe, separate MTA worker, bounded operation and observed real request; [contract and results](docs/SERVICE-CONTROL.md) |
+| Licensing framing and remote display contracts | Inert tests passed; no licensing engine or remote driver is connected to the provider |
 | Isolated laboratory supervisor | Fake-API tests and local owned-process termination checks passed |
 | Windows Server laboratory guest | Desktop booted with WHPX; bootstrap verified the RD Session Host role and running service |
 | Provider activation diagnostics | [21 service-origin events verified activation](docs/ACTIVATION-TRACE.md); four earlier failed captures retained |
@@ -45,6 +47,8 @@ The goal is two independent seats on one computer, with explicit resource assign
 | Creation of a real Windows seat | **Not implemented** |
 | Independent physical display and keyboard/mouse | **Not implemented** |
 | Service, drivers and management interface | Pending |
+
+The laboratory components can be compiled and tested on D: with `.\build.ps1 -RdsLab -RdsTests`. This builds the controller and runs only the inert RDS/component suites; it does not register a provider, enable a host service or create a session.
 
 ## What the core provides
 

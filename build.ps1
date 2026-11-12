@@ -1,5 +1,6 @@
-param([switch]$Test,[switch]$Lab,[switch]$RdsLab)
+param([switch]$Test,[switch]$Lab,[switch]$RdsLab,[switch]$RdsTests)
 $ErrorActionPreference='Stop'
+if($RdsTests -and !$RdsLab){throw '-RdsTests requires -RdsLab.'}
 $base=$PSScriptRoot
 $vswhere='C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
 if(!(Test-Path -LiteralPath $vswhere)){throw 'Visual Studio Build Tools with C++ and the Windows SDK are required.'}
@@ -47,9 +48,25 @@ try {
  }
  if($RdsLab){
   New-Item -ItemType Directory -Force -Path "$base\dist\lab" | Out-Null
-  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT /LD @inc "$base\src\rds\native_rds_bridge.cpp" "/Fe:$base\dist\lab\RETSAR-RdsBridge.dll" /link "/DEF:$base\src\rds\native_rds_bridge.def" @libs ole32.lib advapi32.lib
+  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT /LD @inc "$base\src\rds\native_rds_bridge.cpp" "$base\src\rds\lab_control_channel.cpp" "$base\src\rds\lab_control_worker.cpp" "/Fe:$base\dist\lab\RETSAR-RdsBridge.dll" /link "/DEF:$base\src\rds\native_rds_bridge.def" @libs ole32.lib advapi32.lib
   if($LASTEXITCODE -ne 0){throw 'The optional RDS laboratory bridge compilation failed.'}
-  if($Test){
+  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\src\rds\lab_control_client.cpp" "$base\src\rds\lab_control_channel.cpp" "/Fe:$base\dist\lab\RETSAR-rds-control.exe" /link /SUBSYSTEM:CONSOLE @libs ole32.lib advapi32.lib
+  if($LASTEXITCODE -ne 0){throw 'The owned-guest RDS controller compilation failed.'}
+  & "$base\dist\lab\RETSAR-rds-control.exe" --help
+  if($LASTEXITCODE -ne 0){throw 'Inert controller help check failed.'}
+  if($Test -or $RdsTests){
+   foreach($contract in @('license_transport','remote_display_contract','lab_control_channel')){
+    & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\${contract}_tests.cpp" "$base\src\rds\${contract}.cpp" "/Fe:$base\build\RETSAR-${contract}-tests.exe" /link /SUBSYSTEM:CONSOLE @libs ole32.lib advapi32.lib
+    if($LASTEXITCODE -ne 0){throw "Contract test compilation failed: $contract"}
+    & "$base\build\RETSAR-${contract}-tests.exe"
+    if($LASTEXITCODE -ne 0){throw "Inert contract tests failed: $contract"}
+   }
+   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /DRETSAR_WORKER_TEST_DLL /O2 /MT /LD @inc "$base\tests\lab_control_worker_tests.cpp" "$base\src\rds\lab_control_worker.cpp" "/Fe:$base\build\RETSAR-worker-fixture.dll" /link @libs ole32.lib
+   if($LASTEXITCODE -ne 0){throw 'The MOCK worker fixture compilation failed.'}
+   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\lab_control_worker_tests.cpp" "/Fe:$base\build\RETSAR-worker-tests.exe" /link /SUBSYSTEM:CONSOLE @libs ole32.lib
+   if($LASTEXITCODE -ne 0){throw 'The MOCK worker harness compilation failed.'}
+   & "$base\build\RETSAR-worker-tests.exe" "$base\build\RETSAR-worker-fixture.dll"
+   if($LASTEXITCODE -ne 0){throw 'The MOCK worker tests failed.'}
    & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\rds_bridge_tests.cpp" "/Fe:$base\build\RETSAR-rds-bridge-tests.exe" /link /SUBSYSTEM:CONSOLE @libs ole32.lib
    if($LASTEXITCODE -ne 0){throw 'The in-process MOCK RDS harness compilation failed.'}
    & "$base\build\RETSAR-rds-bridge-tests.exe" "$base\dist\lab\RETSAR-RdsBridge.dll"

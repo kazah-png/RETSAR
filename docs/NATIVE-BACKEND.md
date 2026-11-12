@@ -2,7 +2,7 @@
 
 This document defines a research direction and its acceptance tests. It does not describe an operational provider or installation instructions for an everyday computer.
 
-The [original SDK bridge](RDS-BRIDGE.md) implements an opt-in integration scaffold. Its callback tests use mocks; a separate [live activation experiment](ACTIVATION-TRACE.md#verified-service-activation-after-the-dll-permission-correction) has now verified TermService loading the provider and starting its listener. No native client connection, licensing exchange or user-session creation has been demonstrated. The [isolated laboratory](../lab/README.md) documents the separate guest preparation and supervision path.
+The [original SDK bridge](RDS-BRIDGE.md) implements an opt-in integration scaffold. Its callback tests use mocks; a separate [live activation experiment](ACTIVATION-TRACE.md#verified-service-activation-after-the-dll-permission-correction) has now verified TermService loading the provider and starting its listener. An authenticated [service-control request](SERVICE-CONTROL.md) reached OnConnected and was rejected. No accepted native connection, licensing exchange or user-session creation has been demonstrated. The [isolated laboratory](../lab/README.md) documents the separate guest preparation and supervision path.
 
 The [integration-gaps review](RDS-INTEGRATION-GAPS.md) details the service, licensing, authentication and device contracts still missing from that bridge.
 
@@ -77,7 +77,7 @@ Every stage must retain failed results and unexercised cases. No single stage en
 | **D. Recovery** | Intermediate failures and lost replies preserve ownership and uncertainty; cleanup checks the complete identity of each owned resource. | Release by numeric ID, acquisition of another owner's resources or repeated creation after an uncertain reply. |
 | **E. Physical seat** | Independent physical output and input on laboratory hardware while preserving the first seat. Reproducible creation, use and teardown. | Only a visible remote connection, an alternate desktop or an image viewer. |
 
-Stages A–D investigate necessary components; **an RDS laboratory session still does not satisfy the physical-seat P0 milestone**. Stage E and the criteria in [ROADMAP.md](ROADMAP.md) remain mandatory. A VM can support protocol and fault research; it does not replace physical validation or establish game compatibility.
+Stages Aâ€“D investigate necessary components; **an RDS laboratory session still does not satisfy the physical-seat P0 milestone**. Stage E and the criteria in [ROADMAP.md](ROADMAP.md) remain mandatory. A VM can support protocol and fault research; it does not replace physical validation or establish game compatibility.
 
 Reports must specify Windows version and edition, laboratory configuration, exact provider and driver revisions, observed transitions, original errors and cleanup performed. Incompatibility is a result to record. It is not converted into success by changing system restrictions.
 

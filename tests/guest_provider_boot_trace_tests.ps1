@@ -6,7 +6,7 @@ $path=Join-Path (Split-Path -Parent $PSScriptRoot) 'lab\guest-provider-boot-trac
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw ($errors.Message -join '; ')}
-foreach($name in @('Assert-BootPath','Assert-BootReceipt','Get-ExpectedBootShape','Assert-BootShape','Get-OwnedBootStart')) {
+foreach($name in @('Assert-BootPath','Assert-BootReceipt','Get-ExpectedBootShape','Assert-BootShape','Get-OwnedBootStart','Assert-ActivationRegistration')) {
     $nodes=@($ast.FindAll({param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
     },$true))
@@ -48,6 +48,61 @@ foreach($badPath in @('E:\anything','D:\RETSAR-Lab\provider-activation',
     'C:\RETSAR-Lab\provider-activation\bootactivation.etl:stream','\\server\share')){
     Reject ('Path rejected before lookup '+$badPath){Assert-BootPath $badPath}
 }
+# Registration verification uses only these in-memory key shapes. No registry
+# operation is evaluated by the extracted validator.
+$classId='{E09044AF-A721-4D68-9F49-4527E9E51376}'
+$dll='C:\RETSAR-Lab\provider-activation\RETSAR-RdsBridge.dll'
+$activation=[pscustomobject]@{runId=$valid.runId}
+$mockClass=[ordered]@{values=@([ordered]@{name='RETSARRunId';kind='String';data=$valid.runId});
+    children=@([ordered]@{name='InprocServer32';shape=[ordered]@{values=@(
+        [ordered]@{name='';kind='String';data=$dll},
+        [ordered]@{name='ThreadingModel';kind='String';data='Free'});children=@()}})}
+$legacyListener=[ordered]@{values=@(
+    [ordered]@{name='fEnableWinStation';kind='DWord';data=1},
+    [ordered]@{name='LoadableProtocol_Object';kind='String';data=$classId},
+    [ordered]@{name='RETSARRunId';kind='String';data=$valid.runId});children=@()}
+$controlListener=[ordered]@{values=@(
+    [ordered]@{name='fEnableWinStation';kind='DWord';data=1},
+    [ordered]@{name='LoadableProtocol_Object';kind='String';data=$classId},
+    [ordered]@{name='RETSARControlEnabled';kind='DWord';data=1},
+    [ordered]@{name='RETSARRunId';kind='String';data=$valid.runId});children=@()}
+$script:mockListener=$legacyListener
+$script:registrationLookups=0
+function Get-BootKeyShape([string]$Path) {
+    $script:registrationLookups++
+    if($Path -ceq ('SOFTWARE\Classes\CLSID\'+$classId)) {return $mockClass}
+    if($Path -ceq 'SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RETSAR-Lab') {return $script:mockListener}
+    throw 'Unexpected mock registry path.'
+}
+Assert-ActivationRegistration;Pass 'Legacy activation receipt accepts only the activation-only listener'
+$script:mockListener=$controlListener
+Reject 'Legacy receipt cannot authorize an extra control flag' {Assert-ActivationRegistration}
+$activation | Add-Member -NotePropertyName connectionControlEnabled -NotePropertyValue $false
+$script:mockListener=$legacyListener
+Assert-ActivationRegistration;Pass 'Explicit false retains the legacy registration shape'
+$script:mockListener=$controlListener
+Reject 'Explicit false cannot authorize the control registration' {Assert-ActivationRegistration}
+$activation.connectionControlEnabled=$true
+Assert-ActivationRegistration;Pass 'Explicit true accepts the exact control DWORD1'
+$script:mockListener=$legacyListener
+Reject 'Enabled receipt requires its control value' {Assert-ActivationRegistration}
+$script:mockListener=$controlListener | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+$script:mockListener.values[2].data=0
+Reject 'Control registration value zero is rejected' {Assert-ActivationRegistration}
+$script:mockListener.values[2].data=1
+$script:mockListener.values[2].kind='String'
+Reject 'Control registration type must be DWORD' {Assert-ActivationRegistration}
+$script:mockListener=$controlListener | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+$script:mockListener.values+=[pscustomobject]@{name='Unexpected';kind='DWord';data=1}
+Reject 'Unrelated listener values remain rejected with control enabled' {Assert-ActivationRegistration}
+$script:mockListener=$controlListener
+foreach($badFlag in @($null,0,1,'false','true',@{})) {
+    $activation.connectionControlEnabled=$badFlag
+    $script:registrationLookups=0
+    Reject 'Non-Boolean activation control flag' {Assert-ActivationRegistration}
+    Check ($script:registrationLookups -eq 0) 'Malformed control flag rejected before registry lookup'
+}
+$activation.connectionControlEnabled=$true
 $shape=Get-ExpectedBootShape $valid.traceGuid 1
 Assert-BootShape $shape $shape;Pass 'Exact AutoLogger configuration'
 Check ($shape.values.Count -eq 9 -and $shape.children.Count -eq 1 -and
