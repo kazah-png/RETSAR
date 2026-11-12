@@ -118,8 +118,13 @@ def validate_qcow2(path: Path) -> None:
 
 
 def build_command(paths: dict[str, Path], *, installed_guest: bool = False,
-                  accelerator: str = 'tcg') -> list[str]:
+                  accelerator: str = 'tcg', guest_management: bool = False) -> list[str]:
     """No extra QEMU arguments are accepted from callers."""
+    if type(guest_management) is not bool:
+        raise ValueError("Guest management must be an explicit Boolean opt-in")
+    network = 'user,id=labnet,restrict=on,hostfwd=tcp:127.0.0.1:13389-:3389'
+    if guest_management:
+        network += ',hostfwd=tcp:127.0.0.1:15985-:5985'
     if accelerator == 'tcg':
         accelerator_args = ['-accel', 'tcg,thread=multi', '-cpu', 'max']
     elif accelerator == 'whpx':
@@ -137,7 +142,7 @@ def build_command(paths: dict[str, Path], *, installed_guest: bool = False,
                '-drive', f"if=pflash,format=raw,unit=1,file={paths['vars']}",
                '-drive', f"if=none,id=system,format=qcow2,file={paths['disk']},throttling.bps-write={WRITE_BPS}",
                '-device', 'nvme,drive=system,serial=RETSARLAB',
-               '-netdev', 'user,id=labnet,restrict=on,hostfwd=tcp:127.0.0.1:13389-:3389',
+               '-netdev', network,
                '-device', 'e1000e,netdev=labnet', '-device', 'qemu-xhci,id=xhci',
                '-device', 'usb-tablet,bus=xhci.0', '-boot',
                'order=c,menu=on' if installed_guest else 'order=dc,menu=on']
@@ -178,10 +183,14 @@ def validate_paths(args) -> dict[str, Path]:
     return paths
 
 
-def ports_available() -> None:
+def ports_available(*, guest_management: bool = False) -> None:
+    """Check fixed loopback bindings; QEMU must still acquire them at startup."""
+    if type(guest_management) is not bool:
+        raise ValueError("Guest management must be an explicit Boolean opt-in")
+    ports = (5905, 13389, 15985) if guest_management else (5905, 13389)
     sockets = []
     try:
-        for port in (5905, 13389):
+        for port in ports:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sockets.append(sock)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
@@ -555,11 +564,12 @@ def input_reader(commands, ended):
         ended.set()
 
 
-def supervise(paths, *, api=None, installed_guest=False, accelerator='tcg', whp_api=None):
+def supervise(paths, *, api=None, installed_guest=False, accelerator='tcg', whp_api=None,
+              guest_management=False):
     require_accelerator(accelerator, whp_api=whp_api)
     api = api or WindowsApi()
     check_storage(paths['root'])
-    ports_available()
+    ports_available(guest_management=guest_management)
     child = OwnedChild(api)
     heartbeat = Heartbeat()
     commands, input_failed = queue.Queue(maxsize=16), threading.Event()
@@ -573,7 +583,8 @@ def supervise(paths, *, api=None, installed_guest=False, accelerator='tcg', whp_
     log_path = paths['logs'] / f'qemu-{time.time_ns()}.stderr.log'
     with log_path.open('xb') as log:
         try:
-            child.start(build_command(paths, installed_guest=installed_guest, accelerator=accelerator), paths['root'])
+            child.start(build_command(paths, installed_guest=installed_guest, accelerator=accelerator,
+                                      guest_management=guest_management), paths['root'])
             watchdog = threading.Thread(target=heartbeat.watch, args=(child,), daemon=True)
             watchdog.start()
             threading.Thread(target=input_reader, args=(commands, input_failed), daemon=True).start()
@@ -616,7 +627,10 @@ def supervise(paths, *, api=None, installed_guest=False, accelerator='tcg', whp_
                         if 'error' in reply or 'return' not in reply:
                             raise RuntimeError("QMP refused to start the guest")
                         phase = 'running'
-                        print(json.dumps({'supervisor': 'guest-started', 'realSessionEvidence': False}), flush=True)
+                        # Forwarding does not configure or authenticate the guest WinRM service.
+                        print(json.dumps({'supervisor': 'guest-started', 'realSessionEvidence': False,
+                                          'guestManagementForwarding': guest_management,
+                                          'guestManagementServiceVerified': False}), flush=True)
                     else:
                         pending.pop(reply.get('id'), None)
                         print(json.dumps(reply), flush=True)
@@ -650,13 +664,16 @@ def main():
     parser.add_argument('--installed-guest', action='store_true', help='Boot the existing disk without attaching the Windows installation ISO')
     parser.add_argument('--accelerator', choices=('tcg', 'whpx'), default='tcg',
                         help='TCG by default; WHPX explicitly requires an already available Windows hypervisor, with no fallback or host configuration changes')
+    parser.add_argument('--guest-management', action='store_true',
+                        help='Opt in to fixed loopback forwarding 127.0.0.1:15985 to guest WinRM 5985; no host or guest service configuration is performed')
     args = parser.parse_args()
     if os.name != 'nt':
         parser.error('This supervisor is Windows-only')
     if not args.launch_approved:
         parser.error('No child was created: --launch-approved is required')
     paths = validate_paths(args)
-    return supervise(paths, installed_guest=args.installed_guest, accelerator=args.accelerator)
+    return supervise(paths, installed_guest=args.installed_guest, accelerator=args.accelerator,
+                     guest_management=args.guest_management)
 
 
 if __name__ == '__main__':

@@ -526,10 +526,10 @@ void stopWhileConnectedTests(GetClassObject getFactory){
 int wmain(int argc,wchar_t** argv){
     HMODULE module=nullptr;CanUnloadNow canUnload=nullptr;bool comInitialized=false;
     try{
-        if(argc!=2)throw std::invalid_argument("MOCK harness requires an explicit C: path to the lab DLL.");
+        if(argc!=2)throw std::invalid_argument("MOCK harness requires an explicit C: or D: path to the lab DLL.");
         const std::wstring path=argv[1];
-        if(path.size()<4||(path[0]!=L'C'&&path[0]!=L'c')||path[1]!=L':'||(path[2]!=L'\\'&&path[2]!=L'/'))
-            throw std::invalid_argument("MOCK harness only loads the explicitly built DLL on C:.");
+        if(path.size()<4||(path[0]!=L'C'&&path[0]!=L'c'&&path[0]!=L'D'&&path[0]!=L'd')||path[1]!=L':'||(path[2]!=L'\\'&&path[2]!=L'/'))
+            throw std::invalid_argument("MOCK harness only loads the explicitly built DLL on C: or D:.");
         const auto initialized=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
         if(FAILED(initialized))throw std::runtime_error("Cannot initialize the MOCK harness MTA.");
         comInitialized=true;

@@ -1,6 +1,7 @@
 """Unit tests use fake Win32 calls. No guest or child process is started."""
 import importlib.util
 import io
+import json
 from pathlib import Path
 import struct
 import tempfile
@@ -166,7 +167,107 @@ class AcceleratorTests(unittest.TestCase):
             with self.subTest(expected=expected), patch.object(lab.sys, 'argv', required + extra), \
                     patch.object(lab, 'validate_paths', return_value={}), patch.object(lab, 'supervise', return_value=0) as supervisor:
                 self.assertEqual(lab.main(), 0)
-                supervisor.assert_called_once_with({}, installed_guest=False, accelerator=expected)
+                supervisor.assert_called_once_with({}, installed_guest=False, accelerator=expected, guest_management=False)
+
+
+class GuestManagementTests(unittest.TestCase):
+    def test_opt_in_adds_only_fixed_loopback_forward_to_existing_network(self):
+        paths = {name: Path('D:/private/lab') / name for name in ('qemu', 'code', 'vars', 'disk', 'iso', 'serial')}
+        normal = lab.build_command(paths)
+        enabled = lab.build_command(paths, guest_management=True)
+        index = normal.index('-netdev') + 1
+        expected = normal.copy()
+        expected[index] += ',hostfwd=tcp:127.0.0.1:15985-:5985'
+        self.assertEqual(enabled, expected)
+        self.assertNotIn('15985', ' '.join(normal))
+        self.assertEqual(enabled.count('-netdev'), 1)
+
+    def test_management_cli_default_and_explicit_opt_in(self):
+        required = ['supervise_qemu.py', '--launch-approved', '--root', 'private-root']
+        for name in ('qemu', 'code', 'vars', 'disk', 'iso'):
+            required += ['--' + name, name]
+        for extra, expected in (([], False), (['--guest-management'], True)):
+            with self.subTest(enabled=expected), patch.object(lab.sys, 'argv', required + extra), \
+                    patch.object(lab, 'validate_paths', return_value={}), patch.object(lab, 'supervise', return_value=0) as supervisor:
+                self.assertEqual(lab.main(), 0)
+                supervisor.assert_called_once_with({}, installed_guest=False, accelerator='tcg', guest_management=expected)
+
+    def test_non_boolean_opt_in_is_refused_before_network_access(self):
+        with patch.object(lab.socket, 'socket', side_effect=AssertionError('must not access network')):
+            for invalid in (1, 0, None, 'true', '127.0.0.1:15985', []):
+                with self.subTest(value=invalid):
+                    with self.assertRaises(ValueError): lab.build_command({}, guest_management=invalid)
+                    with self.assertRaises(ValueError): lab.ports_available(guest_management=invalid)
+
+    def test_port_preflight_binds_only_expected_loopback_ports_exclusively(self):
+        for enabled, ports in ((False, (5905, 13389)), (True, (5905, 13389, 15985))):
+            sockets = [Mock() for _ in ports]
+            with self.subTest(enabled=enabled), patch.object(lab.socket, 'socket', side_effect=sockets) as factory:
+                lab.ports_available(guest_management=enabled)
+            self.assertEqual(factory.call_args_list, [call(lab.socket.AF_INET, lab.socket.SOCK_STREAM)] * len(ports))
+            for sock, port in zip(sockets, ports):
+                sock.setsockopt.assert_called_once_with(lab.socket.SOL_SOCKET, lab.socket.SO_EXCLUSIVEADDRUSE, 1)
+                sock.bind.assert_called_once_with(('127.0.0.1', port))
+                sock.close.assert_called_once_with()
+
+    def test_busy_management_port_closes_all_preflight_sockets(self):
+        sockets = [Mock(), Mock(), Mock()]
+        sockets[-1].bind.side_effect = OSError('management port is occupied')
+        with patch.object(lab.socket, 'socket', side_effect=sockets):
+            with self.assertRaisesRegex(OSError, 'occupied'):
+                lab.ports_available(guest_management=True)
+        for sock in sockets:
+            sock.close.assert_called_once_with()
+
+    def test_busy_management_port_stops_before_owned_child_or_log_creation(self):
+        api = FakeApi()
+        paths = {'root': Path('D:/private/lab')}
+        with patch.object(lab, 'check_storage'), \
+                patch.object(lab, 'ports_available', side_effect=OSError('management port is occupied')) as ports, \
+                patch.object(lab, 'OwnedChild') as child, \
+                patch.object(lab.Path, 'open', side_effect=AssertionError('must not create a log')):
+            with self.assertRaisesRegex(OSError, 'occupied'):
+                lab.supervise(paths, api=api, guest_management=True)
+            ports.assert_called_once_with(guest_management=True)
+            child.assert_not_called()
+        self.assertEqual(api.events, [])
+
+    def test_started_json_reports_forwarding_without_claiming_service_readiness(self):
+        class ConnectedApi(FakeApi):
+            def __init__(self):
+                super().__init__()
+                self.polls = 0
+
+            def poll(self, process):
+                self.polls += 1
+                return None if self.polls == 1 else 0
+
+            def read_available(self, handle):
+                if handle == 'stdout':
+                    return b'{"QMP":{}}\n{"return":{},"id":"setup"}\n{"return":{},"id":"start"}\n'
+                return b''
+
+            def write(self, handle, data): self.event('write', handle, data)
+
+        for enabled in (False, True):
+            api = ConnectedApi()
+            output = io.StringIO()
+            with self.subTest(enabled=enabled), tempfile.TemporaryDirectory(prefix='retsar-management-test-') as temp:
+                root = Path(temp)
+                paths = {name: root / name for name in ('qemu', 'code', 'vars', 'disk', 'iso', 'serial')}
+                paths.update(root=root, logs=root, reports=root)
+                with patch.object(lab, 'check_storage'), patch.object(lab, 'ports_available') as ports, \
+                        patch.object(lab.threading, 'Thread'), patch.object(lab.time, 'sleep'), \
+                        patch.object(lab.sys, 'stdout', output):
+                    self.assertEqual(lab.supervise(paths, api=api, guest_management=enabled), 0)
+                ports.assert_called_once_with(guest_management=enabled)
+            records = [json.loads(line) for line in output.getvalue().splitlines()]
+            started = next(record for record in records if record.get('supervisor') == 'guest-started')
+            self.assertIs(started['guestManagementForwarding'], enabled)
+            self.assertIs(started['guestManagementServiceVerified'], False)
+            self.assertIs(started['realSessionEvidence'], False)
+            command = next(event[1] for event in api.events if event[0] == 'create-suspended')
+            self.assertEqual('15985' in ' '.join(command), enabled)
 
 
 class GuardianTests(unittest.TestCase):

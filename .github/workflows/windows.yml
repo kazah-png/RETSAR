@@ -92,6 +92,9 @@ jobs:
           # The reference checks inspect AST/string values only; no guest script or account action runs.
           & $windowsPowerShell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $env:RETSAR_CI_ROOT 'tests\guest_rdp_reference_tests.ps1') 2>&1 | Tee-Object -FilePath $ciLog -Append
           if ($LASTEXITCODE -ne 0) { throw "Reference pure tests failed: $LASTEXITCODE" }
+          # Extracts pure activation guards only; never runs guest service, registry or ETW actions.
+          & $windowsPowerShell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $env:RETSAR_CI_ROOT 'tests\guest_provider_activation_tests.ps1') 2>&1 | Tee-Object -FilePath $ciLog -Append
+          if ($LASTEXITCODE -ne 0) { throw "Activation pure tests failed: $LASTEXITCODE" }
 
       - name: Summarize observed results
         if: always()
@@ -102,7 +105,7 @@ jobs:
             $ciLog = Join-Path $env:RETSAR_CI_ROOT 'reports\ci-build-and-tests.log'
             if (Test-Path -LiteralPath $ciLog) {
               Get-Content -LiteralPath $ciLog |
-                Where-Object { $_ -match '^(TOTAL |CLI TOTAL |PROBE TOTAL |MOCK RDS TOTAL |OBSERVER TOTAL |RDP REFERENCE TOTAL |SKIP |PASS JSON|Ran [0-9]+ tests|OK$)' } |
+                Where-Object { $_ -match '^(TOTAL |CLI TOTAL |PROBE TOTAL |MOCK RDS TOTAL |OBSERVER TOTAL |RDP REFERENCE TOTAL |ACTIVATION TOTAL |SKIP |PASS JSON|Ran [0-9]+ tests|OK$)' } |
                 ForEach-Object { '- ' + $_ } |
                 Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
             }

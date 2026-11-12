@@ -47,7 +47,7 @@ try {
  }
  if($RdsLab){
   New-Item -ItemType Directory -Force -Path "$base\dist\lab" | Out-Null
-  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT /LD @inc "$base\src\rds\native_rds_bridge.cpp" "/Fe:$base\dist\lab\RETSAR-RdsBridge.dll" /link "/DEF:$base\src\rds\native_rds_bridge.def" @libs ole32.lib
+  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT /LD @inc "$base\src\rds\native_rds_bridge.cpp" "/Fe:$base\dist\lab\RETSAR-RdsBridge.dll" /link "/DEF:$base\src\rds\native_rds_bridge.def" @libs ole32.lib advapi32.lib
   if($LASTEXITCODE -ne 0){throw 'The optional RDS laboratory bridge compilation failed.'}
   if($Test){
    & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\rds_bridge_tests.cpp" "/Fe:$base\build\RETSAR-rds-bridge-tests.exe" /link /SUBSYSTEM:CONSOLE @libs ole32.lib

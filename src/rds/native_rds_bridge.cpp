@@ -1,4 +1,6 @@
 #include "native_rds_bridge.hpp"
+#include "activation_trace.hpp"
+#include <TraceLoggingProvider.h>
 #include <objbase.h>
 #include <algorithm>
 #include <array>
@@ -6,6 +8,39 @@
 #include <memory>
 #include <mutex>
 #include <new>
+
+
+namespace seats::rds::activation {
+TRACELOGGING_DEFINE_PROVIDER(
+    provider,
+    "RETSAR.RdsActivation",
+    (0x77e2b2c5,0x62f8,0x4c0c,0xab,0x1f,0x94,0xc6,0xd4,0x91,0x73,0xe1));
+
+void write(const char* method,const char* phase,HRESULT result)noexcept{
+    const auto previousError=GetLastError();
+    TraceLoggingWrite(provider,"Activation",
+        TraceLoggingLevel(4),
+        TraceLoggingKeyword(0x1),
+        TraceLoggingString(method,"Method"),
+        TraceLoggingString(phase,"Phase"),
+        TraceLoggingUInt32(static_cast<ULONG>(result),"HResult"));
+    SetLastError(previousError);
+}
+void processAttach()noexcept{
+    const auto previousError=GetLastError();
+    // Diagnostic failure must not fail DLL loading or change provider behavior.
+    (void)TraceLoggingRegister(provider);
+    write("DLL.ProcessAttach","event",S_OK);
+    SetLastError(previousError);
+}
+void processDetach()noexcept{
+    const auto previousError=GetLastError();
+    write("DLL.ProcessDetach","event",S_OK);
+    // Required before unloading, including when registration failed.
+    TraceLoggingUnregister(provider);
+    SetLastError(previousError);
+}
+}
 
 // Original RETSAR implementation against Windows SDK interfaces. No code from
 // the Azure protocol sample is incorporated in this translation unit.
@@ -276,46 +311,54 @@ public:
         }
     }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** out)override{
-        if(!out)return E_POINTER;*out=nullptr;
-        if(iid==__uuidof(IUnknown)||iid==__uuidof(IWRdsProtocolListener))*out=static_cast<IWRdsProtocolListener*>(this);
-        else if(iid==__uuidof(IRetsarRdsLabControl))*out=static_cast<IRetsarRdsLabControl*>(this);
-        else return E_NOINTERFACE;
-        AddRef();return S_OK;
+        return activation::invoke("Listener.QueryInterface",[&]()->HRESULT{
+            if(!out)return E_POINTER;*out=nullptr;
+            if(iid==__uuidof(IUnknown)||iid==__uuidof(IWRdsProtocolListener))*out=static_cast<IWRdsProtocolListener*>(this);
+            else if(iid==__uuidof(IRetsarRdsLabControl))*out=static_cast<IRetsarRdsLabControl*>(this);
+            else return E_NOINTERFACE;
+            AddRef();return S_OK;
+        });
     }
     ULONG STDMETHODCALLTYPE AddRef()override{return lifetime_.add();}
     ULONG STDMETHODCALLTYPE Release()override{const auto left=--lifetime_.references;if(!left)delete this;return left;}
     HRESULT STDMETHODCALLTYPE GetSettings(WRDS_LISTENER_SETTING_LEVEL,PWRDS_LISTENER_SETTINGS out)override{
-        if(!out)return E_POINTER;*out={};return E_NOTIMPL;
+        return activation::invoke("Listener.GetSettings",[&]()->HRESULT{
+            if(!out)return E_POINTER;*out={};return E_NOTIMPL;
+        });
     }
     HRESULT STDMETHODCALLTYPE StartListen(IWRdsProtocolListenerCallback* callback)override{
-        NotificationScope scope;if(!callback)return E_POINTER;
-        const auto apartment=requireMta();if(FAILED(apartment))return apartment;
-        return boundary([&]()->HRESULT{
-            auto retained=retain(callback);
-            std::lock_guard lock(state_->mutex);
-            if(state_->listening||state_->consumed)return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
-            if(state_->cancelled)return HRESULT_FROM_WIN32(ERROR_CANCELLED);
-            const auto recorded=state_->recordLocked(EventKind::Listening);
-            if(FAILED(recorded))return recorded;
-            state_->listener=std::move(retained);state_->listening=true;return S_OK;
+        return activation::invoke("Listener.StartListen",[&]()->HRESULT{
+            NotificationScope scope;if(!callback)return E_POINTER;
+            const auto apartment=requireMta();if(FAILED(apartment))return apartment;
+            return boundary([&]()->HRESULT{
+                auto retained=retain(callback);
+                std::lock_guard lock(state_->mutex);
+                if(state_->listening||state_->consumed)return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
+                if(state_->cancelled)return HRESULT_FROM_WIN32(ERROR_CANCELLED);
+                const auto recorded=state_->recordLocked(EventKind::Listening);
+                if(FAILED(recorded))return recorded;
+                state_->listener=std::move(retained);state_->listening=true;return S_OK;
+            });
         });
     }
     HRESULT STDMETHODCALLTYPE StopListen()override{
-        NotificationScope scope;
-        return boundary([&]()->HRESULT{
-            SharedInterface<IWRdsProtocolListenerCallback> listener;
-            SharedInterface<IWRdsProtocolConnectionCallback> connection;
-            HRESULT recorded=S_OK;
-            {
-                std::lock_guard lock(state_->mutex);
-                state_->listening=false;state_->cancelled=true;
-                listener=std::move(state_->listener);connection=std::move(state_->connection);
-                recorded=state_->recordLocked(EventKind::ListenerStopped);
-            }
-            std::shared_ptr<Connection> owned;
-            {std::lock_guard lock(ownedMutex_);owned=std::move(ownedConnection_);}
-            // No outbound RDS call from this notification and no session cleanup.
-            return recorded;
+        return activation::invoke("Listener.StopListen",[&]()->HRESULT{
+            NotificationScope scope;
+            return boundary([&]()->HRESULT{
+                SharedInterface<IWRdsProtocolListenerCallback> listener;
+                SharedInterface<IWRdsProtocolConnectionCallback> connection;
+                HRESULT recorded=S_OK;
+                {
+                    std::lock_guard lock(state_->mutex);
+                    state_->listening=false;state_->cancelled=true;
+                    listener=std::move(state_->listener);connection=std::move(state_->connection);
+                    recorded=state_->recordLocked(EventKind::ListenerStopped);
+                }
+                std::shared_ptr<Connection> owned;
+                {std::lock_guard lock(ownedMutex_);owned=std::move(ownedConnection_);}
+                // No outbound RDS call from this notification and no session cleanup.
+                return recorded;
+            });
         });
     }
     HRESULT STDMETHODCALLTYPE StartExperiment(BOOL explicitStart,ULONGLONG operation,ExperimentOutcome* out)override{
@@ -428,35 +471,63 @@ class Manager final:public IWRdsProtocolManager {
     SharedInterface<IWRdsProtocolSettings> settings_;
 public:
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** out)override{
-        if(!out)return E_POINTER;*out=nullptr;
-        if(iid!=__uuidof(IUnknown)&&iid!=__uuidof(IWRdsProtocolManager))return E_NOINTERFACE;
-        *out=static_cast<IWRdsProtocolManager*>(this);AddRef();return S_OK;
+        return activation::invoke("Manager.QueryInterface",[&]()->HRESULT{
+            if(!out)return E_POINTER;*out=nullptr;
+            if(iid!=__uuidof(IUnknown)&&iid!=__uuidof(IWRdsProtocolManager))return E_NOINTERFACE;
+            *out=static_cast<IWRdsProtocolManager*>(this);AddRef();return S_OK;
+        });
     }
     ULONG STDMETHODCALLTYPE AddRef()override{return lifetime_.add();}
     ULONG STDMETHODCALLTYPE Release()override{const auto left=--lifetime_.references;if(!left)delete this;return left;}
     HRESULT STDMETHODCALLTYPE Initialize(IWRdsProtocolSettings* settings,PWRDS_SETTINGS values)override{
-        NotificationScope scope;if(!values)return E_POINTER;
-        return boundary([&]()->HRESULT{
-            // The SDK marks pIWRdsSettings optional; pWRdsSettings is required.
-            auto retained=settings?retain(settings):SharedInterface<IWRdsProtocolSettings>{};
-            SharedInterface<IWRdsProtocolSettings> previous;
-            {std::lock_guard lock(mutex_);previous=std::move(settings_);settings_=std::move(retained);}return S_OK;
+        return activation::invoke("Manager.Initialize",[&]()->HRESULT{
+            NotificationScope scope;if(!values)return E_POINTER;
+            return boundary([&]()->HRESULT{
+                // The SDK marks pIWRdsSettings optional; pWRdsSettings is required.
+                auto retained=settings?retain(settings):SharedInterface<IWRdsProtocolSettings>{};
+                SharedInterface<IWRdsProtocolSettings> previous;
+                {std::lock_guard lock(mutex_);previous=std::move(settings_);settings_=std::move(retained);}return S_OK;
+            });
         });
     }
     HRESULT STDMETHODCALLTYPE CreateListener(WCHAR* name,IWRdsProtocolListener** out)override{
-        NotificationScope scope;if(!out)return E_POINTER;*out=nullptr;
-        if(!name||!*name)return E_INVALIDARG;
-        return boundary([&]()->HRESULT{*out=new Listener();return S_OK;});
+        return activation::invoke("Manager.CreateListener",[&]()->HRESULT{
+            NotificationScope scope;if(!out)return E_POINTER;*out=nullptr;
+            if(!name||!*name)return E_INVALIDARG;
+            return boundary([&]()->HRESULT{*out=new Listener();return S_OK;});
+        });
     }
-    HRESULT STDMETHODCALLTYPE NotifyServiceStateChange(WRDS_SERVICE_STATE*)override{return E_NOTIMPL;}
-    HRESULT STDMETHODCALLTYPE NotifySessionOfServiceStart(WRDS_SESSION_ID*)override{return E_NOTIMPL;}
-    HRESULT STDMETHODCALLTYPE NotifySessionOfServiceStop(WRDS_SESSION_ID*)override{return E_NOTIMPL;}
-    HRESULT STDMETHODCALLTYPE NotifySessionStateChange(WRDS_SESSION_ID*,ULONG)override{return E_NOTIMPL;}
-    HRESULT STDMETHODCALLTYPE NotifySettingsChange(PWRDS_SETTINGS)override{return E_NOTIMPL;}
+    HRESULT STDMETHODCALLTYPE NotifyServiceStateChange(WRDS_SERVICE_STATE*)override{
+        return activation::invoke("Manager.NotifyServiceStateChange",[&]()->HRESULT{
+            return E_NOTIMPL;
+        });
+    }
+    HRESULT STDMETHODCALLTYPE NotifySessionOfServiceStart(WRDS_SESSION_ID*)override{
+        return activation::invoke("Manager.NotifySessionOfServiceStart",[&]()->HRESULT{
+            return E_NOTIMPL;
+        });
+    }
+    HRESULT STDMETHODCALLTYPE NotifySessionOfServiceStop(WRDS_SESSION_ID*)override{
+        return activation::invoke("Manager.NotifySessionOfServiceStop",[&]()->HRESULT{
+            return E_NOTIMPL;
+        });
+    }
+    HRESULT STDMETHODCALLTYPE NotifySessionStateChange(WRDS_SESSION_ID*,ULONG)override{
+        return activation::invoke("Manager.NotifySessionStateChange",[&]()->HRESULT{
+            return E_NOTIMPL;
+        });
+    }
+    HRESULT STDMETHODCALLTYPE NotifySettingsChange(PWRDS_SETTINGS)override{
+        return activation::invoke("Manager.NotifySettingsChange",[&]()->HRESULT{
+            return E_NOTIMPL;
+        });
+    }
     HRESULT STDMETHODCALLTYPE Uninitialize()override{
-        NotificationScope scope;return boundary([&]()->HRESULT{
-            SharedInterface<IWRdsProtocolSettings> release;
-            {std::lock_guard lock(mutex_);release=std::move(settings_);}return S_OK;
+        return activation::invoke("Manager.Uninitialize",[&]()->HRESULT{
+            NotificationScope scope;return boundary([&]()->HRESULT{
+                SharedInterface<IWRdsProtocolSettings> release;
+                {std::lock_guard lock(mutex_);release=std::move(settings_);}return S_OK;
+            });
         });
     }
 };
@@ -465,36 +536,52 @@ class Factory final:public IClassFactory {
     ObjectLifetime lifetime_;
 public:
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** out)override{
-        if(!out)return E_POINTER;*out=nullptr;
-        if(iid!=__uuidof(IUnknown)&&iid!=__uuidof(IClassFactory))return E_NOINTERFACE;
-        *out=static_cast<IClassFactory*>(this);AddRef();return S_OK;
+        return activation::invoke("Factory.QueryInterface",[&]()->HRESULT{
+            if(!out)return E_POINTER;*out=nullptr;
+            if(iid!=__uuidof(IUnknown)&&iid!=__uuidof(IClassFactory))return E_NOINTERFACE;
+            *out=static_cast<IClassFactory*>(this);AddRef();return S_OK;
+        });
     }
     ULONG STDMETHODCALLTYPE AddRef()override{return lifetime_.add();}
     ULONG STDMETHODCALLTYPE Release()override{const auto left=--lifetime_.references;if(!left)delete this;return left;}
     HRESULT STDMETHODCALLTYPE CreateInstance(IUnknown* outer,REFIID iid,void** out)override{
-        if(!out)return E_POINTER;*out=nullptr;if(outer)return CLASS_E_NOAGGREGATION;
-        return boundary([&]()->HRESULT{
-            auto manager=new Manager();const auto result=manager->QueryInterface(iid,out);manager->Release();return result;
+        return activation::invoke("Factory.CreateInstance",[&]()->HRESULT{
+            if(!out)return E_POINTER;*out=nullptr;if(outer)return CLASS_E_NOAGGREGATION;
+            return boundary([&]()->HRESULT{
+                auto manager=new Manager();const auto result=manager->QueryInterface(iid,out);manager->Release();return result;
+            });
         });
     }
     HRESULT STDMETHODCALLTYPE LockServer(BOOL lock)override{
-        if(lock){++serverLocks;return S_OK;}
-        auto observed=serverLocks.load();
-        while(observed){if(serverLocks.compare_exchange_weak(observed,observed-1))return S_OK;}
-        return E_UNEXPECTED;
+        return activation::invoke("Factory.LockServer",[&]()->HRESULT{
+            if(lock){++serverLocks;return S_OK;}
+            auto observed=serverLocks.load();
+            while(observed){if(serverLocks.compare_exchange_weak(observed,observed-1))return S_OK;}
+            return E_UNEXPECTED;
+        });
     }
 };
 }
 }
 
 STDAPI DllGetClassObject(REFCLSID clsid,REFIID iid,void** out){
-    using namespace seats::rds;
-    if(!out)return E_POINTER;*out=nullptr;
-    if(clsid!=NativeRdsBridgeClass)return CLASS_E_CLASSNOTAVAILABLE;
-    return boundary([&]()->HRESULT{
-        auto factory=new Factory();const auto result=factory->QueryInterface(iid,out);factory->Release();return result;
+    return seats::rds::activation::invoke("DllGetClassObject",[&]()->HRESULT{
+        using namespace seats::rds;
+        if(!out)return E_POINTER;*out=nullptr;
+        if(clsid!=NativeRdsBridgeClass)return CLASS_E_CLASSNOTAVAILABLE;
+        return boundary([&]()->HRESULT{
+            auto factory=new Factory();const auto result=factory->QueryInterface(iid,out);factory->Release();return result;
+        });
     });
 }
 STDAPI DllCanUnloadNow(){
-    using namespace seats::rds;return liveObjects.load()==0&&serverLocks.load()==0?S_OK:S_FALSE;
+    return seats::rds::activation::invoke("DllCanUnloadNow",[&]()->HRESULT{
+        using namespace seats::rds;return liveObjects.load()==0&&serverLocks.load()==0?S_OK:S_FALSE;
+    });
+}
+
+BOOL WINAPI DllMain(HINSTANCE,DWORD reason,LPVOID){
+    if(reason==DLL_PROCESS_ATTACH)seats::rds::activation::processAttach();
+    else if(reason==DLL_PROCESS_DETACH)seats::rds::activation::processDetach();
+    return TRUE;
 }
