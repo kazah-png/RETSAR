@@ -4,31 +4,42 @@ Progress is organized by capability and evidence. A compiled component, simulate
 
 ## SDK bridge and laboratory supervision checkpoint
 
-The optional [RDS SDK bridge](RDS-BRIDGE.md) passed **109 in-process mock checks**. The combined local `build.ps1 -Test -Lab -RdsLab` run passed **226 checks**, plus independent JSON validation, with the same unexercised junction branch described below. These checks load the explicit DLL and fake callback objects; they do not register COM classes or call an RDS service.
+The latest local C++/CLI run passed **242 checks**, including **125 mock RDS checks**. The supervisor and answer template separately passed **28 inert Python tests**. These results include the corrected optional settings-interface contract, the installed-guest launch mode, a first-logon command-length regression check, restricted C:/D: paths and checks of both relevant volumes. Public CI for these new changes is pending.
 
-The [laboratory supervisor](../lab/README.md) passed **16 separate fake-API tests**. Its explicit native smoke test also verified termination and kill-on-job-close with **two newly created sleeping helper processes**. Those two process tests were run locally, not as part of CI, and neither creates a VM or Windows session. Guest installation and provider integration are separate experiments.
+The last verified [Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/42802709727/job/129784014483) passed at the earlier commit [`b4eb74e08ae9a28d8d5ef668c9567cdb583c9479`](https://github.com/kazah-png/RETSAR/commit/b4eb74e08ae9a28d8d5ef668c9567cdb583c9479): **227 C++/CLI checks and 16 separate Python tests**, with no failed or skipped checks. It covers the core, probe, optional [RDS SDK bridge](RDS-BRIDGE.md) and [laboratory supervisor](../lab/README.md) at that revision. The table below separates the revisions and scopes.
 
-Review corrected the required readiness notification order, serialized outgoing cancellation, preserved original cancellation failures, and retained early QEMU startup errors in the laboratory log. Public CI evidence for the earlier core/probe revision remains below; the new bridge/supervisor revision requires its own run.
+The bridge tests load the explicit DLL and fake callback objects; they do not register COM classes or call an RDS service. The supervisor's Python tests use a fake Windows API. Separate local native checks verified termination and kill-on-job-close with two newly created sleeping Python helpers. Those native process checks were not part of CI and did not create a VM or Windows session.
 
-The native executor remains blocked. P0 is open.
+Review corrected the required readiness notification order, serialized outgoing cancellation, preserved original cancellation failures, and retained early QEMU startup errors in the laboratory log.
 
-## Evidence summary · 0.2.0-engine-preview
+The narrow settings fix accepts a null optional `IWRdsProtocolSettings` interface and still rejects a null required `WRDS_SETTINGS` structure. Sixteen added mock checks cover reference retention, replacement, rejection and release. The structure's service policy is still not interpreted; successful reference management is not complete RDS initialization. The [integration-gaps review](RDS-INTEGRATION-GAPS.md) records the remaining contracts.
 
-| Check | Recorded local result | Recorded public CI result |
+The separate guest experiment reached Windows Setup but failed during `oobeSystem`. Read-only inspection of the guest logs identified `FirstLogonCommands/SynchronousCommand/CommandLine` as invalid with error `0x80220005`. Its generated command contained 1,318 characters, exceeding the documented limit of 1,024. The fixed template now contains a 309-character launcher and no encoded-command placeholder; a regression test checks the constraint. [Microsoft CommandLine documentation](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands-synchronouscommand-commandline).
+
+The qcow2 structural check passed, but that did not establish successful Windows setup or repair the invalid answer file. A fresh corrected guest installation is pending under the same 4 GiB RAM and two-vCPU budget. RDS configuration, provider readiness and real session creation remain unverified. The native executor stays blocked and P0 remains open.
+
+The laboratory supervisor now permits a private root on C: or D: while monitoring free space on both C: and the selected laboratory volume. Other volumes are rejected before filesystem access. This change applies only to the disposable laboratory; the core's C-only journal and CLI output policy remains unchanged.
+
+## Current evidence · 0.2.0-engine-preview
+
+| Check | Latest local result | Earlier public CI result (`b4eb74e`) |
 | --- | --- | --- |
 | Model, validation and capabilities | 25 passed | 25 passed |
 | Lifecycle, journal and recovery | 57 passed | 58 passed |
 | CLI contracts and file output | 6 passed | 6 passed |
 | Laboratory probe argument/session-gate tests | 29 passed | 29 passed |
-| **Total** | **117 passed, 0 failed** | **118 passed, 0 failed** |
+| RDS bridge mock callback contracts | 125 passed | 109 passed |
+| **C++/CLI total** | **242 passed, 0 failed** | **227 passed, 0 failed, 0 skipped** |
+| Python supervisor and answer-template tests; no guest execution | 28 passed, separate from C++/CLI total | 16 passed, 0 failed, 0 skipped; separate from C++/CLI total |
+| Native supervisor checks with owned helper processes | 2 passed, separate from test-suite totals | Not run |
 | Independent JSON parsing by PowerShell | Passed, additional to the total | Passed, additional to the total |
 | Adversarial junction branch | **1 not exercised** | Exercised and included among lifecycle passes |
 | x64 C++17 build with `/W4 /WX` | Passed | Passed |
 | Probe interactive mode | **Not run** | **Not run** |
 
-Public evidence: [Windows CI run 42795998244](https://github.com/kazah-png/RETSAR/actions/runs/42795998244), commit [`27893ecee2b825c5d03d99b8f5b2180043713736`](https://github.com/kazah-png/RETSAR/commit/27893ecee2b825c5d03d99b8f5b2180043713736). These results describe that tested revision; they do not automatically validate later changes.
+The local adversarial test tried to convert its own temporary directory on C: into a junction targeting another temporary directory on C:. Windows rejected the mutation with error **5 — access denied**, so the redirected-child branch was not exercised locally and is not counted as passed. The earlier CI allowed and verified that branch. The latest local suite also includes sixteen new RDS checks and twelve new Python tests that are absent from that CI revision; its totals must not be presented as a new CI result.
 
-The local adversarial test tried to convert its own temporary directory on C: into a junction targeting another temporary directory on C:. Windows rejected the mutation with error **5 — access denied**, so the redirected-child branch was not exercised locally and is not counted as passed. CI allowed the experiment and verified the branch, accounting for the one-check difference.
+The earlier core/probe baseline passed 117 checks locally and 118 in [CI run 42795998244](https://github.com/kazah-png/RETSAR/actions/runs/42795998244) at commit [`27893ec`](https://github.com/kazah-png/RETSAR/commit/27893ecee2b825c5d03d99b8f5b2180043713736). That baseline excluded the bridge and supervisor. Its checks are included in the current suite, not additional passes to add to the totals. Each linked run validates only its tested revision.
 
 ## Milestone: transactional foundation
 
@@ -65,13 +76,13 @@ Static analysis identified coordination of existing sessions, communication with
 
 Those investigated operations were not executed and system sessions were not modified. This behavioral summary includes no proprietary binaries, decompilations or private protocols. It adds no test passes and establishes no native Windows capability.
 
-The [native backend investigation](NATIVE-BACKEND.md) identifies a public RDS protocol-provider candidate and separates its laboratory acceptance gates from the physical-seat requirement. The remaining step is to validate a mechanism that creates a new interactive session, proves ownership, preserves the reference seat and removes only the created instance.
+The [native backend investigation](NATIVE-BACKEND.md) identifies a public RDS protocol-provider candidate and separates its laboratory acceptance gates from the physical-seat requirement. The [integration-gaps review](RDS-INTEGRATION-GAPS.md) explains why the partial bridge cannot yet create a supported first session. The remaining step is to validate a mechanism that creates a new interactive session, proves ownership, preserves the reference seat and removes only the created instance.
 
 ## Milestone: reproducible public build
 
 **Status: public Windows CI passed at the linked revision.**
 
-[Windows CI](../.github/workflows/windows.yml) copies the required sources, tests and build script to a verified temporary directory on C: to preserve the engine's file policy. It compiles the engine and laboratory instrument, runs pure tests and CLI checks, and invokes only the probe's help.
+[Windows CI](../.github/workflows/windows.yml) copies the required sources, tests, laboratory files and build script to a verified temporary directory on C: to preserve the engine's file policy. It compiles the engine, laboratory instrument and optional SDK bridge, then runs pure tests, mock callback checks, CLI checks and the Python fake-API suite. It invokes only the probe's help and does not launch a VM, execute the guest bootstrap or run the native helper-process smoke test.
 
 The SDK selection checks for the required UCRT headers, x64 libraries and manifest tool before choosing an installed version. A previous CI build exposed an incomplete SDK directory; the passing run validates the corrected selection in that environment.
 
@@ -82,7 +93,8 @@ The workflow badge refers to CI for its specific revision. It is not a native-se
 From an ordinary directory on C:, with the [build prerequisites](../README.md#getting-started):
 
 ```powershell
-.\build.ps1 -Test -Lab
+.\build.ps1 -Test -Lab -RdsLab
+python -B -m unittest discover -s lab -p test_supervise_qemu.py -v
 ```
 
 The suite prints individual outcomes and identifies unexercised branches. Temporary artifacts are written under `build/` and CLI reports under `reports/`; those directories are not published source. The CLI validation report includes the hash of the checked local executable.

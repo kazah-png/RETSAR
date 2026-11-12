@@ -435,9 +435,11 @@ public:
     ULONG STDMETHODCALLTYPE AddRef()override{return lifetime_.add();}
     ULONG STDMETHODCALLTYPE Release()override{const auto left=--lifetime_.references;if(!left)delete this;return left;}
     HRESULT STDMETHODCALLTYPE Initialize(IWRdsProtocolSettings* settings,PWRDS_SETTINGS values)override{
-        NotificationScope scope;if(!settings||!values)return E_POINTER;
+        NotificationScope scope;if(!values)return E_POINTER;
         return boundary([&]()->HRESULT{
-            auto retained=retain(settings);SharedInterface<IWRdsProtocolSettings> previous;
+            // The SDK marks pIWRdsSettings optional; pWRdsSettings is required.
+            auto retained=settings?retain(settings):SharedInterface<IWRdsProtocolSettings>{};
+            SharedInterface<IWRdsProtocolSettings> previous;
             {std::lock_guard lock(mutex_);previous=std::move(settings_);settings_=std::move(retained);}return S_OK;
         });
     }

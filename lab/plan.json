@@ -5,11 +5,28 @@
   "launcherImplemented": true,
   "supervisor": "supervise_qemu.py",
   "validation": {
-    "fakeApiTestsPassed": 16,
+    "fakeApiTestsPassed": 28,
+    "pythonTestScope": "Inert supervisor, fake Windows API and answer-template regression tests; no guest execution.",
     "nativeOwnedChildChecksPassed": 2,
     "nativeCheckScope": "Newly created sleeping Python helpers: job termination and kill on job closure.",
     "qemuStartupAttempted": true,
     "guestBootObserved": false,
+    "windowsSetupBootObserved": true,
+    "guestDiskReadOnlyCheck": "No qcow2 errors found before resuming; this did not establish successful Windows setup.",
+    "guestSetupFailure": {
+      "confirmedFromReadOnlyGuestLogs": true,
+      "pass": "oobeSystem",
+      "error": "0x80220005",
+      "setting": "FirstLogonCommands/SynchronousCommand/CommandLine",
+      "originalCommandCharacters": 1318,
+      "documentedMaximumCharacters": 1024,
+      "correctedTemplateCommandCharacters": 309,
+      "encodedCommandPlaceholderRemoved": true,
+      "regressionTestPassed": true,
+      "freshCorrectedInstallationVerified": false,
+      "nextStep": "Prepare and verify a fresh corrected disposable guest within the existing resource budget.",
+      "constraintSource": "https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands-synchronouscommand-commandline"
+    },
     "guestSessionCreationProven": false
   },
   "purpose": "Validate the C++ RDS provider against a real Windows Server guest.",
@@ -55,7 +72,8 @@
       "virtualCapacityGiB": 64,
       "allocation": "sparse",
       "preallocation": "off",
-      "hostVolume": "C",
+      "hostVolume": "D",
+      "allowedHostVolumes": ["C", "D"],
       "hostFreeSpaceFloorGiB": 25,
       "guestWriteThrottleMiBPerSecond": 16,
       "growthGuard": {
@@ -64,11 +82,14 @@
         "componentChecksPassed": true,
         "vmGrowthUnderLoadVerified": false,
         "stopWhenFreeGiBAtOrBelow": 26,
+        "monitoredVolumes": ["C", "selected laboratory volume"],
+        "deduplicateMonitoredVolumes": true,
         "pollIntervalMs": 200,
         "heartbeatTimeoutMs": 2000,
         "absoluteFreeSpaceGuarantee": false,
         "behavior": [
-          "Check all C: volume free space before launch and while supervising the guest.",
+          "Check free space on C: and the selected C: or D: laboratory volume before launch and while supervising the guest.",
+          "Stop the owned guest if either distinct monitored volume reaches the threshold.",
           "Terminate only the supervisor's owned job on threshold, monitor failure or controller EOF.",
           "Keep the unnamed kill-on-close job handle non-inheritable.",
           "Create the child suspended, assign its handle to the job, then resume it."
@@ -86,7 +107,7 @@
     "chipset": "q35",
     "cpuModel": "max",
     "firmware": "UEFI; compatible firmware files must be verified before provisioning",
-    "storageInterface": "emulated NVMe; guest boot compatibility not yet tested",
+    "storageInterface": "emulated NVMe; Windows Setup recognized the guest disk, but completed installed-system startup remains unverified",
     "graphics": "emulated standard VGA; no host GPU passthrough",
     "pointer": "emulated USB tablet; no host device passthrough",
     "guestMemoryDumpExclusionEnforced": false,
@@ -155,7 +176,10 @@
       "logs": "logs",
       "guestSerialLog": "logs/guest-serial.log"
     },
-    "resolveOnlyToOrdinaryDirectoriesOnC": true,
+    "allowedLaboratoryRootVolumes": ["C", "D"],
+    "rejectOtherVolumesBeforeFilesystemAccess": true,
+    "rejectReparsePoints": true,
+    "coreJournalPolicyRemainsCOnly": true,
     "concreteHostPathsKeptOutsideRepository": true
   },
   "perDeploymentPrerequisites": [

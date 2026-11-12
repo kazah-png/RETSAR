@@ -72,6 +72,36 @@ public:
     bool timedOut(){std::lock_guard<std::mutex> lock(mutex_);return timedOut_;}
 };
 
+struct SettingsLifetime {
+    ULONG addCalls=0,releaseCalls=0,destroyed=0,getCalls=0,mergeCalls=0;
+};
+class MockSettings final:public IWRdsProtocolSettings {
+    std::atomic<ULONG> references_{1};
+    SettingsLifetime& lifetime_;
+public:
+    explicit MockSettings(SettingsLifetime& lifetime):lifetime_(lifetime){++mockObjects;}
+    ~MockSettings(){++lifetime_.destroyed;--mockObjects;}
+    ULONG references()const noexcept{return references_.load();}
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** out)override{
+        if(!out)return E_POINTER;*out=nullptr;
+        if(iid!=__uuidof(IUnknown)&&iid!=__uuidof(IWRdsProtocolSettings))return E_NOINTERFACE;
+        *out=static_cast<IWRdsProtocolSettings*>(this);AddRef();return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef()override{
+        ++lifetime_.addCalls;return references_.fetch_add(1,std::memory_order_relaxed)+1;
+    }
+    ULONG STDMETHODCALLTYPE Release()override{
+        ++lifetime_.releaseCalls;const auto left=references_.fetch_sub(1,std::memory_order_acq_rel)-1;
+        if(!left)delete this;return left;
+    }
+    HRESULT STDMETHODCALLTYPE GetSettings(WRDS_SETTING_TYPE,WRDS_SETTING_LEVEL,PWRDS_SETTINGS out)override{
+        ++lifetime_.getCalls;if(!out)return E_POINTER;*out={};return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE MergeSettings(PWRDS_SETTINGS,WRDS_CONNECTION_SETTING_LEVEL,PWRDS_CONNECTION_SETTINGS out)override{
+        ++lifetime_.mergeCalls;if(!out)return E_POINTER;*out={};return E_NOTIMPL;
+    }
+};
+
 class MockConnectionCallback final:public IWRdsProtocolConnectionCallback {
     std::atomic<ULONG> references_{1};
 public:
@@ -226,6 +256,46 @@ void factoryTests(GetClassObject getFactory,CanUnloadNow canUnload){
     check(manager->QueryInterface(unknown,&unsupported)==E_NOINTERFACE&&!unsupported,"unsupported manager QI clears output");
     factory.reset();check(canUnload()==S_FALSE,"manager reference prevents unload");
     manager.reset();outer.reset();check(canUnload()==S_OK,"released manager and factory allow unload");
+}
+
+void managerInitializeTests(GetClassObject getFactory){
+    SettingsLifetime firstLifetime{},secondLifetime{};
+    Ref<MockSettings> first{new MockSettings(firstLifetime)},second{new MockSettings(secondLifetime)};
+    Fixture fixture(getFactory,false);WRDS_SETTINGS values{};
+    check(fixture.manager->Initialize(nullptr,&values)==S_OK,
+        "manager accepts absent optional protocol settings when required values exist");
+    check(fixture.manager->Initialize(first.get(),&values)==S_OK,
+        "manager accepts a MOCK protocol settings interface");
+    check(first->references()==2&&firstLifetime.addCalls==1&&firstLifetime.releaseCalls==0,
+        "manager retains exactly one settings reference");
+    check(fixture.manager->Initialize(second.get(),nullptr)==E_POINTER,
+        "manager rejects missing required settings values");
+    check(first->references()==2&&firstLifetime.releaseCalls==0&&second->references()==1&&secondLifetime.addCalls==0,
+        "invalid replacement neither drops prior settings nor retains the candidate");
+    check(fixture.manager->Initialize(nullptr,nullptr)==E_POINTER&&first->references()==2&&firstLifetime.releaseCalls==0,
+        "missing required values cannot clear a prior reference through an optional null interface");
+    check(fixture.manager->Initialize(second.get(),&values)==S_OK,
+        "manager replaces settings with a different MOCK interface");
+    check(first->references()==1&&firstLifetime.releaseCalls==1&&second->references()==2&&secondLifetime.addCalls==1,
+        "successful replacement releases the prior reference and retains the replacement");
+    check(fixture.manager->Initialize(nullptr,&values)==S_OK,
+        "optional null interface can replace existing settings");
+    check(second->references()==1&&secondLifetime.releaseCalls==1&&firstLifetime.releaseCalls==1,
+        "null replacement releases only the retained settings reference");
+    check(fixture.manager->Initialize(first.get(),&values)==S_OK&&first->references()==2,
+        "manager can retain settings again after a null replacement");
+    check(fixture.manager->Uninitialize()==S_OK,
+        "manager Uninitialize succeeds after settings initialization");
+    check(first->references()==1&&firstLifetime.addCalls==2&&firstLifetime.releaseCalls==2,
+        "Uninitialize releases the retained settings reference exactly once");
+    check(fixture.manager->Uninitialize()==S_OK&&firstLifetime.releaseCalls==2&&secondLifetime.releaseCalls==1,
+        "repeated Uninitialize does not release settings again");
+    check(firstLifetime.getCalls==0&&firstLifetime.mergeCalls==0&&secondLifetime.getCalls==0&&secondLifetime.mergeCalls==0,
+        "reference management does not invent settings Get or Merge calls");
+    first.reset();second.reset();
+    check(firstLifetime.destroyed==1&&secondLifetime.destroyed==1&&firstLifetime.releaseCalls==firstLifetime.addCalls+1&&
+        secondLifetime.releaseCalls==secondLifetime.addCalls+1,
+        "all MOCK settings references balance and both objects are destroyed");
 }
 
 void gateAndSuccessTests(GetClassObject getFactory){
@@ -468,6 +538,7 @@ int wmain(int argc,wchar_t** argv){
         const auto getFactory=symbol<GetClassObject>(module,"DllGetClassObject");
         canUnload=symbol<CanUnloadNow>(module,"DllCanUnloadNow");
         factoryTests(getFactory,canUnload);
+        managerInitializeTests(getFactory);
         gateAndSuccessTests(getFactory);
         delayedHandshakeTests(getFactory);
         failureTests(getFactory);

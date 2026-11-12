@@ -20,7 +20,7 @@ There are exactly two explicit DLL exports: `DllGetClassObject` and `DllCanUnloa
 | Object | SDK interfaces | Implemented responsibility |
 | --- | --- | --- |
 | Factory | `IClassFactory` | Class selection, interface negotiation, reference lifetime, aggregation rejection, server locks. |
-| Manager | `IWRdsProtocolManager` | Retains supplied settings, creates listener objects, releases its settings on uninitialization. |
+| Manager | `IWRdsProtocolManager` | Retains the optional settings interface when present, creates listener objects, and releases that interface on replacement or uninitialization. |
 | Listener | `IWRdsProtocolListener` | Retains the callback delivered to `StartListen`; stops accepting work on `StopListen`. It does not connect automatically. |
 | Connection | `IWRdsProtocolConnection` | Supplies limited protocol metadata; receives and queues session/connection notifications. Unsupported transports fail explicitly. |
 | Laboratory control | Project-specific `IRetsarRdsLabControl` | Explicit one-attempt trigger, delayed continuation, connection cancellation request, bounded event drain. |
@@ -30,6 +30,8 @@ RETSAR's class identifier is `{E09044AF-A721-4D68-9F49-4527E9E51376}`. Its labor
 The laboratory interface is an **in-process contract**, not an IPC endpoint or an authorization boundary. A future service-side trigger must reach the particular listener instance receiving the RDS callback and must have its own authenticated admission and resource accounting. This bridge supplies neither that trigger nor an external broker. Instantiating a second manager in a test process would not reach the service's listener.
 
 `StartListen`, start, continuation, and explicit cancellation require an initialized process MTA. SDK callbacks retain their normal COM ownership contract. The bridge does not marshal callbacks across apartments.
+
+`Initialize` accepts a null optional `IWRdsProtocolSettings` pointer and requires a non-null `WRDS_SETTINGS` pointer, matching the SDK annotations. Rejecting the required pointer leaves any previously retained interface unchanged. The method does not yet interpret or consume service policy from the structure; its successful pointer/reference handling is not complete service initialization.
 
 ## Handshake and ordering
 
@@ -61,10 +63,12 @@ There is no network listener, service-side trigger, authenticated IPC, Remote ID
 
 The SDK identifies the RDS provider interfaces as supported server interfaces; it does not establish Windows 11 workstation support. Validation must first use an explicitly prepared separate environment compatible with the documented scenario. Its licensing and authentication must remain normal. A future successful RDS session would still require independent display, input, recovery and physical-seat validation described in [NATIVE-BACKEND.md](NATIVE-BACKEND.md).
 
+The [integration-gaps review](RDS-INTEGRATION-GAPS.md) separates early service activation from the licensing, authentication and device contracts required for a first supported session. The current bridge does not meet those contracts.
+
 ## Evidence and provenance
 
 The harness covers factory negotiation and lifetime, explicit admission, synchronous and delayed readiness, original failure propagation, full session identity observations, queue overflow, unsupported outputs, and cancellation at paused mock callbacks on MTA threads. It also tests `StopListen` during `OnConnected` and preservation of `BrokenConnection` failure. All callback outcomes are mock outcomes, not claims about an RDS service.
 
-The local `-Test -Lab -RdsLab` run compiled with `/W4 /WX` and passed **109 MOCK RDS checks**. Together with the existing suites it passed **226 checks**, plus independent JSON validation, with one pre-existing adversarial junction branch not exercised locally. This is contract and in-process concurrency evidence only. No service registration, native session, input transport, IDD or graphics presentation was exercised.
+The latest local `-Test -Lab -RdsLab` run compiled with `/W4 /WX` and passed **125 MOCK RDS checks**, including sixteen checks for the optional settings-interface contract and reference lifetime. Together with the existing suites it passed **242 checks**, plus independent JSON validation, with one pre-existing adversarial junction branch not exercised locally. This is contract and in-process concurrency evidence only. No service registration, native session, input transport, IDD or graphics presentation was exercised. [PROGRESS.md](PROGRESS.md) distinguishes this result from the earlier public CI revision.
 
 Implementation is project-owned code against the public Windows SDK. No implementation from the Azure sample is copied. The sample is only a design reference: [Microsoft's source at commit `0b5a0bae`](https://github.com/Azure/Remote-Desktop-Services-Protocol-Sample/tree/0b5a0bae1cc1c2a667b5962bd7847d5181ae375f). Its incomplete transport and licensing methods are not copied as working behavior.

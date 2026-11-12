@@ -39,7 +39,7 @@
       <OOBE><HideEULAPage>true</HideEULAPage><HideOnlineAccountScreens>true</HideOnlineAccountScreens><HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE><ProtectYourPC>3</ProtectYourPC></OOBE>
       <UserAccounts><AdministratorPassword><Value>@@ADMIN_PASSWORD@@</Value><PlainText>true</PlainText></AdministratorPassword></UserAccounts>
       <AutoLogon><Username>Administrator</Username><Enabled>true</Enabled><LogonCount>3</LogonCount><Password><Value>@@ADMIN_PASSWORD@@</Value><PlainText>true</PlainText></Password></AutoLogon>
-      <FirstLogonCommands><SynchronousCommand wcm:action="add"><Order>1</Order><Description>Prepare disposable RDS laboratory</Description><CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand @@BOOTSTRAP_COMMAND@@</CommandLine></SynchronousCommand></FirstLogonCommands>
+      <FirstLogonCommands><SynchronousCommand wcm:action="add"><Order>1</Order><Description>Prepare disposable RDS laboratory</Description><CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "if($env:COMPUTERNAME -ne 'RETSARLAB'){throw 'Guest only'};$d=@(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=5'|Where-Object VolumeName -eq 'RETSARSETUP');if($d.Count -ne 1){throw 'Setup CD missing'};&amp; ($d[0].DeviceID+'\guest-bootstrap.ps1')"</CommandLine></SynchronousCommand></FirstLogonCommands>
     </component>
   </settings>
 </unattend>

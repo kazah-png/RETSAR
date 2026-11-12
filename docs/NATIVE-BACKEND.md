@@ -4,6 +4,8 @@ This document defines a research direction and its acceptance tests. It does not
 
 The [original SDK bridge](RDS-BRIDGE.md) implements an opt-in, in-process integration scaffold. Its callback tests use mocks; service integration remains unverified. The [isolated laboratory](../lab/README.md) documents the separate guest preparation and supervision path.
 
+The [integration-gaps review](RDS-INTEGRATION-GAPS.md) details the service, licensing, authentication and device contracts still missing from that bridge.
+
 **RETSAR has no validated mechanism for creating a second simultaneous Windows 11 seat with independent display and input.** The absence of a proven implementation does not establish that every possible implementation is technically impossible. The transactional core is separate from that question: its tests do not prove session creation.
 
 ## Candidate with public interfaces and source
@@ -85,7 +87,7 @@ The probe does not grant ownership by observing an ID. Simultaneous comparison w
 
 ### Instrument evidence
 
-The recorded local build passed C++17 compilation with `/W4 /WX`, help invocation and **29 pure checks**, without interactive execution. The combined local `build.ps1 -Test -Lab` run passed **117 checks**, plus independent JSON validation, with one adversarial junction branch not exercised. The corresponding public CI passed **118 checks**, including that branch. See [PROGRESS.md](PROGRESS.md#evidence-summary--020-engine-preview) for the exact revision and evidence.
+The earlier core/probe baseline passed C++17 compilation with `/W4 /WX`, help invocation and **29 pure probe checks**, without interactive execution. That local `build.ps1 -Test -Lab` run passed **117 checks**, plus independent JSON validation, with one adversarial junction branch not exercised. The corresponding public CI passed **118 checks**, including that branch. See [PROGRESS.md](PROGRESS.md) for its exact revision and the separate results for later bridge and supervisor changes.
 
 Neither run validates the interactive window, D3D11 creation, event delivery or a real-session report.
 

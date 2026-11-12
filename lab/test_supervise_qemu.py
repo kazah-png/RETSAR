@@ -5,8 +5,10 @@ from pathlib import Path
 import struct
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+import xml.etree.ElementTree as ET
+from unittest.mock import call, patch
 
 spec = importlib.util.spec_from_file_location('supervise_qemu', Path(__file__).with_name('supervise_qemu.py'))
 lab = importlib.util.module_from_spec(spec)
@@ -98,6 +100,51 @@ class GuardianTests(unittest.TestCase):
                 lab.check_space(value)
         lab.check_space(26 * lab.GIB + 1)
 
+    def test_storage_guard_queries_only_system_and_selected_lab_volume(self):
+        free = SimpleNamespace(free=40 * lab.GIB)
+        for root, expected in (('C:/private/lab', ['C:\\']),
+                               ('d:/private/lab', ['C:\\', 'D:\\'])):
+            with self.subTest(root=root), patch.object(lab.shutil, 'disk_usage', return_value=free) as usage:
+                lab.check_storage(root)
+                self.assertEqual(usage.call_args_list, [call(volume) for volume in expected])
+
+    def test_storage_guard_stops_on_either_volume_threshold(self):
+        for constrained in ('C:\\', 'D:\\'):
+            def usage(volume):
+                self.assertIn(volume, ('C:\\', 'D:\\'))
+                return SimpleNamespace(free=(26 if volume == constrained else 40) * lab.GIB)
+            with self.subTest(volume=constrained), patch.object(lab.shutil, 'disk_usage', side_effect=usage):
+                with self.assertRaises(RuntimeError) as stopped:
+                    lab.check_storage('D:/private/lab')
+                self.assertIn(constrained, str(stopped.exception))
+
+    def test_storage_guard_refuses_other_roots_without_querying_a_volume(self):
+        with patch.object(lab.shutil, 'disk_usage', side_effect=AssertionError('must not query a volume')):
+            for root in ('E:/private/lab', 'Z:/lab', '//server/share', 'D:/private/../lab'):
+                with self.subTest(root=root), self.assertRaises(ValueError):
+                    lab.check_storage(root)
+
+    def test_storage_guard_fails_closed_when_lab_volume_cannot_be_read(self):
+        with patch.object(lab.shutil, 'disk_usage', side_effect=[SimpleNamespace(free=40 * lab.GIB), OSError('unavailable')]) as usage:
+            with self.assertRaises(OSError):
+                lab.check_storage('D:/private/lab')
+            self.assertEqual(usage.call_args_list, [call('C:\\'), call('D:\\')])
+
+    def test_running_storage_failure_closes_only_owned_child(self):
+        api = FakeApi()
+        with tempfile.TemporaryDirectory(prefix='retsar-storage-test-') as temp:
+            root = Path(temp)
+            paths = {name: root / name for name in ('qemu', 'code', 'vars', 'disk', 'iso', 'serial')}
+            paths.update(root=Path('D:/private/lab'), logs=root, reports=root)
+            with patch.object(lab, 'check_storage', side_effect=[None, RuntimeError('storage stop')]) as guard, \
+                    patch.object(lab, 'ports_available'), patch.object(lab.threading, 'Thread'):
+                with self.assertRaisesRegex(RuntimeError, 'storage stop'):
+                    lab.supervise(paths, api=api)
+                self.assertEqual(guard.call_args_list, [call(paths['root']), call(paths['root'])])
+        self.assertIn(('terminate-job', 'own-job'), api.events)
+        self.assertIn(('close', 'own-process'), api.events)
+        self.assertNotIn(('terminate-process', 'own-process'), api.events)
+
     def test_lost_heartbeat_terminates_owned_job(self):
         api = FakeApi()
         child = lab.OwnedChild(api)
@@ -143,6 +190,15 @@ class GuardianTests(unittest.TestCase):
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_first_logon_command_respects_windows_setup_length_limit(self):
+        template = Path(__file__).with_name('autounattend.xml.template')
+        root = ET.parse(template).getroot()
+        namespace = {'u': 'urn:schemas-microsoft-com:unattend'}
+        command = root.find('.//u:FirstLogonCommands/u:SynchronousCommand/u:CommandLine', namespace).text
+        self.assertTrue(command)
+        self.assertLessEqual(len(command), 1024)
+        self.assertNotIn('@@', command)
+
     def test_fixed_command_has_no_host_integration_or_unrestricted_network(self):
         paths = {name: Path('C:/private/lab') / name for name in ('qemu', 'code', 'vars', 'disk', 'iso', 'serial')}
         command = lab.build_command(paths)
@@ -165,11 +221,71 @@ class ConfigurationTests(unittest.TestCase):
         command = lab.build_command(paths)
         self.assertEqual(len([arg for arg in command if 'media=cdrom,readonly=on,format=raw' in arg]), 2)
 
-    def test_non_c_path_refused_before_filesystem_access(self):
+    def test_installed_guest_omits_bootable_installer_but_keeps_bootstrap_media(self):
+        paths = {name: Path('C:/private/lab') / name for name in ('qemu', 'code', 'vars', 'disk', 'iso', 'serial', 'unattend')}
+        command = lab.build_command(paths, installed_guest=True)
+        self.assertEqual(command[command.index('-boot') + 1], 'order=c,menu=on')
+        optical = [arg for arg in command if 'media=cdrom' in arg]
+        self.assertEqual(optical, [f"if=ide,media=cdrom,readonly=on,format=raw,file={paths['unattend']}"])
+        self.assertTrue(any(f"file={paths['disk']}," in arg for arg in command))
+
+    def test_allowed_drive_is_pure_and_accepts_only_c_and_d(self):
+        with patch.object(lab.os, 'lstat', side_effect=AssertionError('must not access filesystem')), \
+                patch.object(lab.shutil, 'disk_usage', side_effect=AssertionError('must not query a volume')):
+            for drive in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+                with self.subTest(drive=drive):
+                    if drive in ('C', 'D'):
+                        self.assertEqual(lab.allowed_drive(drive.lower() + ':/private/lab'), drive + ':\\')
+                    else:
+                        with self.assertRaises(ValueError):
+                            lab.allowed_drive(drive + ':/private/lab')
+
+    def test_disallowed_path_refused_before_filesystem_access(self):
         with patch.object(lab.os, 'lstat', side_effect=AssertionError('must not access filesystem')):
-            for value in ('E:/private', 'D:/private', '//server/share', 'C:/private/../target', 'C:/file:stream'):
+            for value in ('E:/private', '//server/share', '//?/D:/private', '//./C:/private',
+                          'C:/private/../target', 'D:/private/./target', 'D:/private/.. /target',
+                          'C:/file:stream', 'D:/file:stream', 'D:relative', 'C:/private//file',
+                          'D:/private,extra', 'C:/private\tfile'):
                 with self.subTest(value=value), self.assertRaises(ValueError):
-                    lab.ordinary_c_path(value)
+                    lab.ordinary_lab_path(value)
+
+    def test_ordinary_c_and_d_files_are_accepted_with_mocked_filesystem(self):
+        with patch.object(lab.os, 'lstat', return_value=SimpleNamespace(st_file_attributes=0)) as stat, \
+                patch.object(lab.Path, 'is_dir', return_value=False), patch.object(lab.Path, 'is_file', return_value=True):
+            for drive in ('C', 'D'):
+                value = drive + ':/private/file'
+                self.assertEqual(lab.ordinary_lab_path(value), Path(value))
+            self.assertEqual({path.args[0].drive.upper() for path in stat.call_args_list}, {'C:', 'D:'})
+
+    def test_reparse_on_either_allowed_drive_is_refused(self):
+        with patch.object(lab.os, 'lstat', return_value=SimpleNamespace(st_file_attributes=0x400)):
+            for drive in ('C', 'D'):
+                with self.subTest(drive=drive), self.assertRaisesRegex(ValueError, 'Reparse'):
+                    lab.ordinary_lab_path(drive + ':/private/file')
+
+    def test_late_forbidden_media_path_is_refused_before_any_filesystem_access(self):
+        args = SimpleNamespace(root='D:/private/lab', qemu='C:/tools/qemu-system-x86_64.exe',
+                               code='C:/tools/firmware.fd', vars='D:/private/lab/vars.fd',
+                               disk='D:/private/lab/disk.qcow2', iso='E:/private/media.iso', unattend_iso=None)
+        with patch.object(lab.os, 'lstat', side_effect=AssertionError('must not access filesystem')):
+            with self.assertRaises(ValueError):
+                lab.validate_paths(args)
+
+    def test_d_lab_keeps_guest_assets_contained_and_allows_c_qemu(self):
+        args = SimpleNamespace(root='D:/private/lab', qemu='C:/tools/qemu-system-x86_64.exe',
+                               code='C:/tools/firmware.fd', vars='D:/private/lab/vars.fd',
+                               disk='D:/private/lab/disk.qcow2', iso='D:/private/lab/media.iso',
+                               unattend_iso='D:/private/lab/answer.iso')
+        with patch.object(lab, 'ordinary_lab_path', side_effect=lambda value, **kwargs: Path(value)), \
+                patch.object(lab.os.path, 'lexists', return_value=False), patch.object(lab, 'validate_qcow2'):
+            paths = lab.validate_paths(args)
+            self.assertEqual(paths['qemu'].drive, 'C:')
+            for name in ('vars', 'disk', 'iso', 'unattend', 'logs', 'reports', 'serial'):
+                self.assertTrue(lab.under(paths[name], paths['root']))
+            for outside in ('D:/elsewhere/disk.qcow2', 'C:/private/lab/disk.qcow2'):
+                args.disk = outside
+                with self.subTest(outside=outside), self.assertRaises(ValueError):
+                    lab.validate_paths(args)
 
     def test_qcow2_rejects_references_and_wrong_capacity(self):
         header = bytearray(104)

@@ -31,13 +31,20 @@ WRITE_BPS = 16 * 1024 ** 2
 MAX_MESSAGE = 16384
 
 
-def ordinary_c_path(value: str, *, directory: bool = False) -> Path:
-    """Reject non-C paths *before* any filesystem access, then reject reparses."""
+def allowed_drive(value: str) -> str:
+    """Validate ordinary C:/D: path syntax without accessing any filesystem."""
     value = value.replace("/", "\\")
-    if not re.match(r"^[Cc]:\\", value) or any(x in value for x in ('\x00', ',', '\n', '\r')):
-        raise ValueError("Only ordinary absolute C: paths without comma/control characters are allowed")
-    if ':' in value[2:] or any(p in ('.', '..', '') for p in value[3:].split('\\')):
+    if not re.match(r"^[CcDd]:\\", value) or ',' in value or any(ord(x) < 32 for x in value):
+        raise ValueError("Only ordinary absolute C: or D: paths without comma/control characters are allowed")
+    if ':' in value[2:] or any(p in ('.', '..', '') or p.endswith(('.', ' ')) for p in value[3:].split('\\')):
         raise ValueError("Path components must be explicit, with no traversal or alternate streams")
+    return value[0].upper() + ':\\'
+
+
+def ordinary_lab_path(value: str, *, directory: bool = False) -> Path:
+    """Reject disallowed paths before filesystem access, then reject reparses."""
+    allowed_drive(value)
+    value = value.replace("/", "\\")
     path = Path(value)
     current = Path(value[:3])
     for component in value[3:].split('\\'):
@@ -72,7 +79,7 @@ def validate_qcow2(path: Path) -> None:
         raise ValueError("Backing files, encryption, snapshots and unsupported qcow2 features are refused")
 
 
-def build_command(paths: dict[str, Path]) -> list[str]:
+def build_command(paths: dict[str, Path], *, installed_guest: bool = False) -> list[str]:
     """No extra QEMU arguments are accepted from callers."""
     command = [str(paths['qemu']), '-no-user-config', '-nodefaults', '-name', 'RETSAR-Lab',
                '-machine', 'q35,vmport=off', '-accel', 'tcg,thread=multi',
@@ -83,22 +90,29 @@ def build_command(paths: dict[str, Path]) -> list[str]:
                '-drive', f"if=pflash,format=raw,unit=1,file={paths['vars']}",
                '-drive', f"if=none,id=system,format=qcow2,file={paths['disk']},throttling.bps-write={WRITE_BPS}",
                '-device', 'nvme,drive=system,serial=RETSARLAB',
-               '-drive', f"if=ide,media=cdrom,readonly=on,format=raw,file={paths['iso']}",
                '-netdev', 'user,id=labnet,restrict=on,hostfwd=tcp:127.0.0.1:13389-:3389',
                '-device', 'e1000e,netdev=labnet', '-device', 'qemu-xhci,id=xhci',
-               '-device', 'usb-tablet,bus=xhci.0', '-boot', 'order=dc,menu=on']
+               '-device', 'usb-tablet,bus=xhci.0', '-boot',
+               'order=c,menu=on' if installed_guest else 'order=dc,menu=on']
+    if not installed_guest:
+        command += ['-drive', f"if=ide,media=cdrom,readonly=on,format=raw,file={paths['iso']}"]
     if 'unattend' in paths:
         command += ['-drive', f"if=ide,media=cdrom,readonly=on,format=raw,file={paths['unattend']}"]
     return command
 
 
 def validate_paths(args) -> dict[str, Path]:
-    root = ordinary_c_path(args.root, directory=True)
+    # Validate every supplied path before inspecting any of them on disk.
+    for name in ('root', 'qemu', 'code', 'vars', 'disk', 'iso'):
+        allowed_drive(getattr(args, name))
+    if args.unattend_iso:
+        allowed_drive(args.unattend_iso)
+    root = ordinary_lab_path(args.root, directory=True)
     paths = {'root': root}
     for name in ('qemu', 'code', 'vars', 'disk', 'iso'):
-        paths[name] = ordinary_c_path(getattr(args, name))
+        paths[name] = ordinary_lab_path(getattr(args, name))
     if args.unattend_iso:
-        paths['unattend'] = ordinary_c_path(args.unattend_iso)
+        paths['unattend'] = ordinary_lab_path(args.unattend_iso)
     if paths['qemu'].name.casefold() != 'qemu-system-x86_64.exe':
         raise ValueError("Only the verified x86_64 QEMU system executable is allowed")
     for name in ('vars', 'disk', 'iso', 'unattend'):
@@ -108,8 +122,8 @@ def validate_paths(args) -> dict[str, Path]:
         raise ValueError("Installation media must be existing .iso files")
     if len({str(p).casefold() for key, p in paths.items() if key != 'root'}) != len(paths) - 1:
         raise ValueError("QEMU, disk, media and firmware paths must be distinct")
-    paths['reports'] = ordinary_c_path(str(root / 'reports'), directory=True)
-    paths['logs'] = ordinary_c_path(str(root / 'logs'), directory=True)
+    paths['reports'] = ordinary_lab_path(str(root / 'reports'), directory=True)
+    paths['logs'] = ordinary_lab_path(str(root / 'logs'), directory=True)
     paths['serial'] = paths['logs'] / 'guest-serial.log'
     if os.path.lexists(paths['serial']):
         raise ValueError("The guest serial log already exists; archive it before launching")
@@ -434,9 +448,21 @@ class OwnedChild:
             raise RuntimeError("Owned-child cleanup failed") from errors[0]
 
 
-def check_space(free_bytes):
+def check_space(free_bytes, volume='C:\\'):
     if type(free_bytes) is not int or free_bytes <= STOP_FREE_BYTES:
-        raise RuntimeError("C: free-space monitor reached the 26 GiB stop threshold or returned invalid data")
+        raise RuntimeError(f"{volume} free-space monitor reached the 26 GiB stop threshold or returned invalid data")
+
+
+def monitored_volumes(root: Path | str) -> tuple[str, ...]:
+    """Select only the system volume and the approved lab volume; never enumerate drives."""
+    drive = allowed_drive(str(root))
+    return ('C:\\',) if drive == 'C:\\' else ('C:\\', 'D:\\')
+
+
+def check_storage(root: Path | str) -> None:
+    # C: remains guarded for Windows/pagefile overhead when guest assets are on D:.
+    for volume in monitored_volumes(root):
+        check_space(shutil.disk_usage(volume).free, volume)
 
 
 def check_serial(path: Path):
@@ -482,9 +508,9 @@ def input_reader(commands, ended):
         ended.set()
 
 
-def supervise(paths, *, api=None):
+def supervise(paths, *, api=None, installed_guest=False):
     api = api or WindowsApi()
-    check_space(shutil.disk_usage('C:\\').free)
+    check_storage(paths['root'])
     ports_available()
     child = OwnedChild(api)
     heartbeat = Heartbeat()
@@ -499,13 +525,13 @@ def supervise(paths, *, api=None):
     log_path = paths['logs'] / f'qemu-{time.time_ns()}.stderr.log'
     with log_path.open('xb') as log:
         try:
-            child.start(build_command(paths), paths['root'])
+            child.start(build_command(paths, installed_guest=installed_guest), paths['root'])
             watchdog = threading.Thread(target=heartbeat.watch, args=(child,), daemon=True)
             watchdog.start()
             threading.Thread(target=input_reader, args=(commands, input_failed), daemon=True).start()
             deadline = time.monotonic() + 30
             while True:
-                check_space(shutil.disk_usage('C:\\').free)
+                check_storage(paths['root'])
                 check_serial(paths['serial'])
                 heartbeat.last = time.monotonic()
                 if heartbeat.failed.is_set() or input_failed.is_set():
@@ -535,7 +561,7 @@ def supervise(paths, *, api=None):
                     elif reply.get('id') == 'setup':
                         if 'error' in reply or 'return' not in reply:
                             raise RuntimeError("QMP capability negotiation failed")
-                        check_space(shutil.disk_usage('C:\\').free)
+                        check_storage(paths['root'])
                         api.write(child.stdin, b'{"execute":"cont","id":"start"}\n')
                         phase = 'starting'
                     elif reply.get('id') == 'start':
@@ -568,18 +594,19 @@ def supervise(paths, *, api=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--root', required=True, help='Existing private lab directory on C:')
+    parser.add_argument('--root', required=True, help='Existing private lab directory on C: or D:; both C: and the lab volume are monitored')
     for name in ('qemu', 'code', 'vars', 'disk', 'iso'):
-        parser.add_argument('--' + name, required=True, help='Existing ordinary C: file')
-    parser.add_argument('--unattend-iso', help='Optional existing private read-only installation-answer ISO')
+        parser.add_argument('--' + name, required=True, help='Existing ordinary C: or D: file; guest disk, writable firmware and media must be inside --root')
+    parser.add_argument('--unattend-iso', help='Optional existing read-only installation-answer ISO inside the C: or D: lab root')
     parser.add_argument('--launch-approved', action='store_true', help='Explicit opt-in to the already approved lab launch')
+    parser.add_argument('--installed-guest', action='store_true', help='Boot the existing disk without attaching the Windows installation ISO')
     args = parser.parse_args()
     if os.name != 'nt':
         parser.error('This supervisor is Windows-only')
     if not args.launch_approved:
         parser.error('No child was created: --launch-approved is required')
     paths = validate_paths(args)
-    return supervise(paths)
+    return supervise(paths, installed_guest=args.installed_guest)
 
 
 if __name__ == '__main__':
