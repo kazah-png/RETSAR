@@ -1,0 +1,53 @@
+; RETSAR remote-session laboratory source template; derived from Microsoft IddSample under MS-PL.
+[Version]
+Signature="$Windows NT$"
+Class=Display
+ClassGUID={4D36E968-E325-11CE-BFC1-08002BE10318}
+ClassVer=2.0
+Provider=%Manufacturer%
+CatalogFile=RETSARRemoteIddLab.cat
+DriverVer=@DRIVER_DATE@,@DRIVER_VERSION@
+PnpLockDown=1
+
+[Manufacturer]
+%Manufacturer%=Models,NTamd64.10.0.3..20348
+[Models.NTamd64.10.0.3..20348]
+%DeviceName%=DeviceInstall,RETSARRemoteIddLab
+
+[SourceDisksFiles]
+RETSARRemoteIddLab.dll=1
+[SourceDisksNames]
+1=%DiskName%
+[DestinationDirs]
+DriverCopy=12,UMDF
+
+[DeviceInstall.NT]
+CopyFiles=DriverCopy
+[DeviceInstall.NT.HW]
+AddReg=DeviceHardware
+[DeviceHardware]
+HKR,,UpperFilters,0x00010000,"IndirectKmd"
+[DeviceInstall.NT.Services]
+AddService=WUDFRd,0x000001fa,WUDFRD_ServiceInstall
+[WUDFRD_ServiceInstall]
+DisplayName="Windows Driver Frameworks - User-mode Driver Framework Reflector"
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\WUDFRd.sys
+
+[DeviceInstall.NT.Wdf]
+UmdfService=RETSARRemoteIddLab,RETSARRemoteIddLab_Service
+UmdfServiceOrder=RETSARRemoteIddLab
+UmdfKernelModeClientPolicy=AllowKernelModeClients
+UmdfHostProcessSharing=ProcessSharingDisabled
+[RETSARRemoteIddLab_Service]
+UmdfLibraryVersion=2.25.0
+ServiceBinary=%12%\UMDF\RETSARRemoteIddLab.dll
+UmdfExtensions=IddCx0102
+[DriverCopy]
+RETSARRemoteIddLab.dll
+[Strings]
+Manufacturer="RETSAR Laboratory"
+DeviceName="RETSAR Laboratory Remote Virtual Display"
+DiskName="RETSAR remote laboratory driver"

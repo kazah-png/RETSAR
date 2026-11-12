@@ -1,0 +1,87 @@
+{
+  "schema": "retsar.remote-idd-source.v1",
+  "upstreamRepository": "https://github.com/microsoft/Windows-driver-samples",
+  "upstreamCommit": "d49bb7d72f3651952b2b6e4ad28d14fe2247eb69",
+  "sourceOnly": true,
+  "remoteRuntimeVerified": false,
+  "hardwareId": "RETSARRemoteIddLab",
+  "traceProviderName": "RETSAR.Lab.RemoteIddReference",
+  "traceProviderGuid": "6ca57134-47eb-4619-9da1-52ab3bb21ef7",
+  "files": [
+    {
+      "path": ".gitignore",
+      "license": "MIT",
+      "sha256": "a44c34db87f6b004c2bc7f9f13c31ccff414c68d09d5c41c91e2d2f6896344d7",
+      "bytes": 104
+    },
+    {
+      "path": "BUILD.md",
+      "license": "MIT",
+      "sha256": "e9da483e51f0cf2652fc4a8b2960e40e1d9b86792b6ba5fc8b25077ed9792fa4",
+      "bytes": 3069
+    },
+    {
+      "path": "build.py",
+      "license": "MIT",
+      "sha256": "f94d7791f2dbd9acd389e8810e1468a0976dab8190b7212001f53f75ff0a3882",
+      "bytes": 5957
+    },
+    {
+      "path": "Driver.cpp",
+      "license": "MS-PL",
+      "sha256": "ebe995675ad8f8a28efadb9c59034e5cbfb983bbfd0c9551b784628a1102a908",
+      "bytes": 35819,
+      "baselinePath": "lab/idd-reference/Driver.cpp",
+      "baselineSha256": "512fb48f1bfb1fbef8f985106ba42021a33a696391079a53d8560e1ebd2ee4b6",
+      "upstreamPath": "video/IndirectDisplay/IddSampleDriver/Driver.cpp",
+      "upstreamUrl": "https://raw.githubusercontent.com/microsoft/Windows-driver-samples/d49bb7d72f3651952b2b6e4ad28d14fe2247eb69/video/IndirectDisplay/IddSampleDriver/Driver.cpp",
+      "upstreamSha256": "b6e9320291372a3f041e0bea716e15e7bc3d8df6359169e822d3eb3a281bdf3f"
+    },
+    {
+      "path": "Driver.h",
+      "license": "MS-PL",
+      "sha256": "c4ea60766610bbce4e8e4b693740ff7a6904f61f06eccdab1578da2896ab94b7",
+      "bytes": 3434,
+      "baselinePath": "lab/idd-reference/Driver.h",
+      "baselineSha256": "d7c3efc9918f8d86fd54cee9131f9b0879a4f253c42557b065aa259c4aa17e58",
+      "upstreamPath": "video/IndirectDisplay/IddSampleDriver/Driver.h",
+      "upstreamUrl": "https://raw.githubusercontent.com/microsoft/Windows-driver-samples/d49bb7d72f3651952b2b6e4ad28d14fe2247eb69/video/IndirectDisplay/IddSampleDriver/Driver.h",
+      "upstreamSha256": "1e9a431342cb57e3cc14e9d9f671c4def164eeaaa0b99dc33f00de1e37487c0c"
+    },
+    {
+      "path": "LICENSE-MS-PL.txt",
+      "license": "MS-PL",
+      "sha256": "07639618c7b94ab9953cc61715f6325877e1854dca611ed9b1bd54497cf5e93a",
+      "bytes": 2665
+    },
+    {
+      "path": "NOTICE.txt",
+      "license": "MIT",
+      "sha256": "dd081c1359fb83c8f70dd8c9a00a2523e77d9fe51b1d2fe4a87463342d0381c1",
+      "bytes": 1924
+    },
+    {
+      "path": "README.md",
+      "license": "MIT",
+      "sha256": "0659621874af0f1b17bb8fdad3eeb24eef1ea0a12e74060941bd231724aaa439",
+      "bytes": 4612
+    },
+    {
+      "path": "remote-vs-console.patch",
+      "license": "MS-PL",
+      "sha256": "54721f5f4cb10e8ae24913bd7e6926021a598e1eb3ad8dd05c5449ee3320c536",
+      "bytes": 8845
+    },
+    {
+      "path": "RETSARRemoteIddLab.inf.template",
+      "license": "MS-PL",
+      "sha256": "e498056afaf544b0b3689d0548fbbcbf4017acb809e060f01e56f74c68e79683",
+      "bytes": 1489,
+      "baselinePath": "lab/idd-reference/RETSARIddLab.inf.template",
+      "baselineSha256": "f153d9a115004f883d65470200fe0123948574433bed21e3fb8bd56a7839abdb",
+      "upstreamPath": "video/IndirectDisplay/IddSampleDriver/IddSampleDriver.inf",
+      "upstreamUrl": "https://raw.githubusercontent.com/microsoft/Windows-driver-samples/d49bb7d72f3651952b2b6e4ad28d14fe2247eb69/video/IndirectDisplay/IddSampleDriver/IddSampleDriver.inf",
+      "upstreamSha256": "cbbdb28ff33a515515d63e2c7c3562f77c9d2ab0e44733deb3df92ca38ae9e36"
+    }
+  ]
+}

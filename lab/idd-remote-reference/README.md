@@ -1,0 +1,23 @@
+# Remote indirect display laboratory source
+
+This source-only package implements a fixed remote IDD configuration for a supervised, isolated QEMU Windows Server 2022 laboratory. It derives from the separately verified [console reference](../idd-reference/README.md), with the same Microsoft source provenance and MS-PL license. The console experiment's runtime evidence does not apply to this remote adaptation. No remote runtime result, usable session or physical seat is claimed here.
+
+The hardware ID, UMDF service and DLL basename are `RETSARRemoteIddLab`. The driver requires IddCx 1.4, UMDF 2.25 and an operating-system-created remote-session device. It requests the remote-session and smallest-mode flags, reports one EDID-less progressive 1280x720 at 60 Hz monitor, and submits a matching desktop path at origin (0,0) with 100% scale. Monitor arrival alone does not activate a remote desktop path. [Microsoft remote IDD requirements](https://learn.microsoft.com/en-us/windows-hardware/drivers/display/iddcx1.4-updates-for-remote-idds), [display configuration API](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/iddcx/nf-iddcx-iddcxadapterdisplayconfigupdate).
+
+## Integration boundary
+
+There is no software-device holder. A protocol provider must return this exact hardware ID through `IWRdsWddmIddProps::GetHardwareId` after the corresponding signed package is staged in the guest. RDS creates and removes the remote devnode; manually creating a console device with these adapter flags is rejected by IddCx. The provider must implement its own connection, licensing, authentication and input contracts, and close the driver handle transferred by `OnDriverLoad`. This package does not expose any provider COM interface, register a provider, open physical input devices or create a user session. [IDD interface](https://learn.microsoft.com/en-us/windows/win32/api/wtsprotocol/nn-wtsprotocol-iwrdswddmiddprops).
+
+The inherited swapchain consumer acquires surfaces and records counters. It does not present frames to a physical monitor or transport pixels to a client. It provides no independent keyboard or mouse path. Actual session/display association, successful topology application, swapchain delivery and teardown remain guest observations to perform after the other provider contracts permit them.
+
+## Failure and lifetime behavior
+
+Adapter-init submission failures return through the power-on callback. Adapter completion, monitor creation/arrival and topology failures remain error statuses; the driver does not report successful initialization after them. A topology result of `STATUS_GRAPHICS_INDIRECT_DISPLAY_DEVICE_STOPPED` is logged as an expected session/adapter shutdown race and is returned unchanged, without a critical-error crash or retry loop. A WDF monitor cleanup callback deletes its allocated context; the context retains the baseline swapchain stop routine. The device-level INF directive disables process pooling. RDS disconnection normally removes the device; reconnect creates a new device and repeats initialization. Teardown timing still requires guest verification.
+
+The separate TraceLogging provider is `RETSAR.Lab.RemoteIddReference`, GUID `6ca57134-47eb-4619-9da1-52ab3bb21ef7`. `RemoteDisplayConfigUpdate` records its original NTSTATUS and requested dimensions. Lifecycle/swapchain/frame-counter events contain no frame pixels, credentials or input data. Successful configuration submission only means Windows stored the configuration; activation and frames are asynchronous. [Configuration return semantics](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/iddcx/nf-iddcx-iddcxadapterdisplayconfigupdate).
+
+## Build and provenance
+
+Read [BUILD.md](BUILD.md) for explicit toolchain inputs and the opt-in build command. The builder compiles and checks an INF in a new external output directory. It does not acquire tools, accept licenses, sign, install or load the result. Signing and exact guest cleanup require a separately reviewed workflow.
+
+[source-manifest.json](source-manifest.json) records exact hashes; [remote-vs-console.patch](remote-vs-console.patch) makes this adaptation comparable with its immediate baseline. To apply that patch to a separate copy of the baseline, first name the copied INF template `RETSARRemoteIddLab.inf.template`; the patch then updates the three corresponding files in place. Microsoft-derived source is licensed under [MS-PL](LICENSE-MS-PL.txt); attribution and the original-code boundary are in [NOTICE.txt](NOTICE.txt). Generated artifacts and private logs must remain outside this source package.

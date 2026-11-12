@@ -1,0 +1,33 @@
+RETSAR remote indirect display laboratory reference
+
+Driver.cpp, Driver.h and RETSARRemoteIddLab.inf.template are derived from
+Microsoft Windows-driver-samples, video/IndirectDisplay/IddSampleDriver.
+Upstream repository: https://github.com/microsoft/Windows-driver-samples
+Upstream revision: d49bb7d72f3651952b2b6e4ad28d14fe2247eb69
+Copyright (c) Microsoft Corporation
+
+The complete Microsoft Public License is retained in LICENSE-MS-PL.txt.
+Microsoft-derived files and RETSAR modifications remain under MS-PL.
+The repository MIT license does not replace their license. Documentation,
+metadata and build.py are original RETSAR material under the repository MIT
+license. No implementation is copied from the Azure RDS protocol sample.
+
+The immediate baseline is the reviewed lab/idd-reference console source,
+with the same source text normalized to UTF-8 without BOM and LF. That
+baseline reports one EDID-less 1280x720 at 60 Hz monitor, contains Server
+20348 package metadata, and logs lifecycle and acquired-buffer counters.
+The separate remote adaptation adds remote/smallest-mode adapter flags,
+an explicit remote desktop topology, propagation of initialization errors,
+monitor-context cleanup, the device-level process-sharing directive, and
+its own hardware ID, driver filenames and ETW provider. No pixel data
+or user input is exported. The INF keeps DriverVer build placeholders.
+
+source-manifest.json records original acquired upstream hashes, immediate
+baseline hashes and current source hashes. remote-vs-console.patch is a
+normalized comparison against that baseline. Its Microsoft-derived excerpts
+remain under MS-PL.
+
+No software-device holder, compiled driver, catalog, certificate, private
+key, SDK/WDK binary/header/library or machine log is included. Toolchain
+licenses are separate and must be reviewed for the tools supplied by the
+developer. The reference WDK package includes pre-release license terms.

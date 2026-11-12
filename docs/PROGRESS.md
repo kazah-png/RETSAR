@@ -2,7 +2,15 @@
 
 Progress is organized by capability and evidence. A compiled component, simulated transaction or existing session ID is not recorded as an operational native seat.
 
+## Child-session and remote-display preparation
+
+The [child-session diagnostics](CHILD-SESSIONS.md) distinguish unsupported conclusions from actual API errors. On the observed Core-edition host, enabling failed without elevation, then succeeded after the user accepted Windows elevation; disabled state was restored and verified. No client connection or session creation occurred. The focused local suite added 100 status and 608 toggle checks using injected APIs only.
+
+A separate [remote IDD source package](../lab/idd-remote-reference/README.md) now compiles with the reviewed MSVC/WDK toolchain and passes universal INF validation. It uses a distinct remote hardware ID and the OS remote-session device contract, with an explicit 1280x720 path. Source/manifest/patch/build-artifact checks passed separately. It is unsigned, unstaged and unexecuted; the console IDD runtime evidence does not transfer to it. No remote display or physical input success is claimed.
+
 ## Authenticated service-control increment
+
+The verified [service-control CI run](https://github.com/kazah-png/RETSAR/actions/runs/43289887808/job/131433002658) at [`2a063f4`](https://github.com/kazah-png/RETSAR/commit/2a063f4a89b409d67f29614c4a2bb27f16a75e88) passed **496 C++/CLI checks, 46 Python tests and 220 separate inert PowerShell checks**, with no failures or skipped adversarial branches. This run predates the child-session and remote-IDD-source increment.
 
 The new [local control channel](SERVICE-CONTROL.md) reached the listener created by actual TermService in the disposable Server guest. A real explicit Start returned `E_INVALIDARG` (`0x80070057`) from `OnConnected`. No new user session or device isolation was observed. The service-restart capture initially missed delayed provider loading; a cold-start capture then recorded 34 provider events with zero reported loss. Exact owned registration, tracing and DLL cleanup was verified afterward.
 
@@ -14,7 +22,7 @@ Review fixed stop-time callback retention and loss accounting. The worker tests 
 
 The last complete local C++/CLI baseline passed **242 checks**, including **125 mock RDS checks**. The supervisor suite now has **46 separate inert Python tests**, and local guest-helper checks total **175**: 27 observer, nine reference-marker, 73 activation and 66 boot-trace checks. These helpers exercise pure logic and synthetic buffers; they do not run guest operations.
 
-The latest verified [Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43277022578/job/131388022533) passed at commit [`8b5f425`](https://github.com/kazah-png/RETSAR/commit/8b5f425439ef328964cbf51c9508c33b3626ffa6): **243 C++/CLI checks, 46 separate Python tests and 175 separate inert PowerShell checks**, with no failed or skipped checks. Its PowerShell scope was 27 observer, nine reference-marker, 73 activation and 66 boot-trace checks; it also parsed five guest scripts without executing them. The table below keeps local and CI scopes separate.
+The earlier complete [Windows CI baseline](https://github.com/kazah-png/RETSAR/actions/runs/43277022578/job/131388022533) passed at commit [`8b5f425`](https://github.com/kazah-png/RETSAR/commit/8b5f425439ef328964cbf51c9508c33b3626ffa6): **243 C++/CLI checks, 46 separate Python tests and 175 separate inert PowerShell checks**, with no failed or skipped checks. Its PowerShell scope was 27 observer, nine reference-marker, 73 activation and 66 boot-trace checks; it also parsed five guest scripts without executing them. The table below keeps local and CI scopes separate.
 
 The bridge tests load the explicit DLL and fake callback objects; they do not register COM classes or call an RDS service. The Python suite uses fake Windows API calls and inert configuration/template checks. Separate local native checks verified termination and kill-on-job-close with two newly created sleeping Python helpers. Those native process checks were not part of CI and did not create a VM or Windows session.
 
@@ -32,7 +40,7 @@ Rerunning the bootstrap inside that guest emitted `environment-verified` and the
 
 The laboratory supervisor now permits a private root on C: or D: while monitoring free space on both C: and the selected laboratory volume. Other volumes are rejected before filesystem access. This change applies only to the disposable laboratory; the core's C-only journal and CLI output policy remains unchanged.
 
-## Current evidence Â· 0.2.0-engine-preview
+## Current evidence · 0.2.0-engine-preview
 
 | Check | Latest local result | Verified public CI result (`8b5f425`) |
 | --- | --- | --- |
@@ -55,7 +63,7 @@ The laboratory supervisor now permits a private root on C: or D: while monitorin
 | x64 C++17 build with `/W4 /WX` | Passed | Passed |
 | Probe interactive mode | Executed inside the Server guest's RDP candidate; exported JSON and account SID comparison verified | **Not run** |
 
-The local adversarial test tried to convert its own temporary directory on C: into a junction targeting another temporary directory on C:. Windows rejected the mutation with error **5 â€” access denied**, so the redirected-child branch was not exercised locally and is not counted as passed. CI allowed and verified that branch, accounting for the one-check difference between the C++/CLI totals.
+The local adversarial test tried to convert its own temporary directory on C: into a junction targeting another temporary directory on C:. Windows rejected the mutation with error **5 — access denied**, so the redirected-child branch was not exercised locally and is not counted as passed. CI allowed and verified that branch, accounting for the one-check difference between the C++/CLI totals.
 
 Historical baselines: [`b4eb74e`](https://github.com/kazah-png/RETSAR/actions/runs/42802709727/job/129784014483) passed 227 C++/CLI checks and 16 Python tests in CI; the earlier core/probe-only [`27893ec`](https://github.com/kazah-png/RETSAR/actions/runs/42795998244) passed 117 checks locally and 118 in CI. Those checks are included in the current suite, not additional passes to add to its totals. Each linked run validates only its tested revision.
 

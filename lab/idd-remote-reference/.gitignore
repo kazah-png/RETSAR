@@ -1,0 +1,17 @@
+out/
+build/
+temp/
+*.obj
+*.dll
+*.exe
+*.lib
+*.exp
+*.pdb
+*.cat
+*.cer
+*.crt
+*.pfx
+*.key
+*.etl
+*.log
+*.jsonl

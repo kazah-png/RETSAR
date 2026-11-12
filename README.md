@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/retsar-banner.svg" alt="RETSAR â€” Runtime Environment for Terminal Sharing and Allocation of Resources. Engine preview." width="100%">
+  <img src="assets/retsar-banner.svg" alt="RETSAR — Runtime Environment for Terminal Sharing and Allocation of Resources. Engine preview." width="100%">
 </p>
 
 <p align="center">
@@ -10,17 +10,18 @@
 </p>
 
 <p align="center"><b>An open core for independent Windows seats.</b><br>
-Verifiable plans Â· explicit ownership Â· persistent recovery</p>
+Verifiable plans · explicit ownership · persistent recovery</p>
 
 <p align="center">
-  <a href="#getting-started">Build</a> Â·
-  <a href="docs/ARCHITECTURE.md">Architecture</a> Â·
-  <a href="docs/NATIVE-BACKEND.md">Native backend research</a> Â·
-  <a href="docs/RDS-BRIDGE.md">SDK bridge</a> Â·
-  <a href="docs/RDS-INTEGRATION-GAPS.md">Integration gaps</a> Â·
-  <a href="lab/README.md">Isolated laboratory</a> Â·
-  <a href="docs/ROADMAP.md">Roadmap</a> Â·
-  <a href="docs/PROGRESS.md">Verified progress</a> Â·
+  <a href="#getting-started">Build</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
+  <a href="docs/NATIVE-BACKEND.md">Native backend research</a> ·
+  <a href="docs/RDS-BRIDGE.md">SDK bridge</a> ·
+  <a href="docs/SERVICE-CONTROL.md">Service control</a> ·
+  <a href="docs/RDS-INTEGRATION-GAPS.md">Integration gaps</a> ·
+  <a href="lab/README.md">Isolated laboratory</a> ·
+  <a href="docs/ROADMAP.md">Roadmap</a> ·
+  <a href="docs/PROGRESS.md">Verified progress</a> ·
   <a href="ACKNOWLEDGEMENTS.md">Acknowledgements</a>
 </p>
 
@@ -44,6 +45,8 @@ The goal is two independent seats on one computer, with explicit resource assign
 | Provider activation diagnostics | [21 service-origin events verified activation](docs/ACTIVATION-TRACE.md); four earlier failed captures retained |
 | Console virtual-display reference | [Guest lifecycle and frame acquisition observed](lab/idd-reference/RESULTS.md); cleanup verified after a cold boot; physical/session/input isolation unverified |
 | Server reference observation tools | Concurrent guest logons and a manual same-boot sign-out/cleanup cycle verified; helper observation timeout remains |
+| Remote IDD adaptation | [Source compiles and INF validates](lab/idd-remote-reference/README.md); no remote runtime test |
+| Child-session candidate | [Reversible setting test observed](docs/CHILD-SESSIONS.md); connection and target-edition support unverified |
 | Creation of a real Windows seat | **Not implemented** |
 | Independent physical display and keyboard/mouse | **Not implemented** |
 | Service, drivers and management interface | Pending |

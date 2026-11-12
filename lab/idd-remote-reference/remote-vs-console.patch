@@ -1,0 +1,221 @@
+--- a/Driver.cpp
++++ b/Driver.cpp
+@@ -21,8 +21,8 @@
+ // WPP is unused by this isolated reference build.
+ 
+ // Original RETSAR laboratory diagnostics: state and counters only, never frame pixels or input.
+-TRACELOGGING_DEFINE_PROVIDER(g_labTrace, "RETSAR.Lab.IddReference",
+-    (0x38e4154b, 0xe31d, 0x4edc, 0xa3, 0xb7, 0x7a, 0x13, 0x9b, 0x63, 0x42, 0x3c));
++TRACELOGGING_DEFINE_PROVIDER(g_labTrace, "RETSAR.Lab.RemoteIddReference",
++    (0x6ca57134, 0x47eb, 0x4619, 0x9d, 0xa1, 0x52, 0xab, 0x3b, 0xb2, 0x1e, 0xf7));
+ static std::atomic<bool> g_labTraceRegistered{false};
+ static std::atomic<ULONGLONG> g_labFrames{0};
+ static std::atomic<ULONGLONG> g_labSwapchains{0};
+@@ -309,9 +309,7 @@
+     // This function is called by WDF to start the device in the fully-on power state.
+ 
+     auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(Device);
+-    pContext->pContext->InitAdapter();
+-
+-    return STATUS_SUCCESS;
++    return pContext->pContext->InitAdapter();
+ }
+ 
+ #pragma region Direct3DDevice
+@@ -527,7 +525,7 @@
+ {
+ }
+ 
+-void IndirectDeviceContext::InitAdapter()
++NTSTATUS IndirectDeviceContext::InitAdapter()
+ {
+     // ==============================
+     // TODO: Update the below diagnostic information in accordance with the target hardware. The strings and version
+@@ -538,6 +536,10 @@
+ 
+     IDDCX_ADAPTER_CAPS AdapterCaps = {};
+     AdapterCaps.Size = sizeof(AdapterCaps);
++    // The remote desktop stack must create this device for a remote session.
++    // IddCx rejects these flags on a manually created console software device.
++    AdapterCaps.Flags = static_cast<IDDCX_ADAPTER_FLAGS>(
++        IDDCX_ADAPTER_FLAGS_REMOTE_SESSION_DRIVER | IDDCX_ADAPTER_FLAGS_USE_SMALLEST_MODE);
+ 
+     // Declare basic feature support for the adapter (required)
+     AdapterCaps.MaxMonitorsSupported = IDD_SAMPLE_MONITOR_COUNT;
+@@ -546,9 +548,9 @@
+     AdapterCaps.EndPointDiagnostics.TransmissionType = IDDCX_TRANSMISSION_TYPE_WIRED_OTHER;
+ 
+     // Declare your device strings for telemetry (required)
+-    AdapterCaps.EndPointDiagnostics.pEndPointFriendlyName = L"RETSAR Laboratory Virtual Display";
++    AdapterCaps.EndPointDiagnostics.pEndPointFriendlyName = L"RETSAR Laboratory Remote Virtual Display";
+     AdapterCaps.EndPointDiagnostics.pEndPointManufacturerName = L"RETSAR Laboratory";
+-    AdapterCaps.EndPointDiagnostics.pEndPointModelName = L"Private console IDD reference";
++    AdapterCaps.EndPointDiagnostics.pEndPointModelName = L"Remote IDD source reference";
+ 
+     // Declare your hardware and firmware versions (required)
+     IDDCX_ENDPOINT_VERSION Version = {};
+@@ -580,9 +582,10 @@
+         auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(AdapterInitOut.AdapterObject);
+         pContext->pContext = this;
+     }
+-}
+-
+-void IndirectDeviceContext::FinishInit(UINT ConnectorIndex)
++    return Status;
++}
++
++NTSTATUS IndirectDeviceContext::FinishInit(UINT ConnectorIndex)
+ {
+     // ==============================
+     // TODO: In a real driver, the EDID should be retrieved dynamically from a connected physical monitor. The EDIDs
+@@ -594,6 +597,11 @@
+ 
+     WDF_OBJECT_ATTRIBUTES Attr;
+     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attr, IndirectMonitorContextWrapper);
++    Attr.EvtCleanupCallback = [](WDFOBJECT Object)
++    {
++        auto* context = WdfObjectGet_IndirectMonitorContextWrapper(Object);
++        if (context) context->Cleanup();
++    };
+ 
+     // In the sample driver, we report a monitor right away but a real driver would do this when a monitor connection event occurs
+     IDDCX_MONITOR_INFO MonitorInfo = {};
+@@ -616,7 +624,13 @@
+     // ==============================
+ 
+     // Create a container ID
+-    CoCreateGuid(&MonitorInfo.MonitorContainerId);
++    const HRESULT containerResult = CoCreateGuid(&MonitorInfo.MonitorContainerId);
++    if (FAILED(containerResult))
++    {
++        TraceLoggingWrite(g_labTrace, "MonitorContainerIdFailed",
++            TraceLoggingHResult(containerResult, "HResult"));
++        return STATUS_UNSUCCESSFUL;
++    }
+ 
+     IDARG_IN_MONITORCREATE MonitorCreate = {};
+     MonitorCreate.ObjectAttributes = &Attr;
+@@ -636,7 +650,34 @@
+         IDARG_OUT_MONITORARRIVAL ArrivalOut;
+         Status = IddCxMonitorArrival(MonitorCreateOut.MonitorObject, &ArrivalOut);
+         TraceLoggingWrite(g_labTrace, "MonitorArrival", TraceLoggingNTStatus(Status, "Status"));
+-    }
++        if (!NT_SUCCESS(Status)) return Status;
++
++        // Remote adapters start with an empty desktop configuration. Arrival
++        // alone does not activate a path. This fixed laboratory topology must
++        // agree with both the default-description and target mode callbacks.
++        IDDCX_DISPLAYCONFIGPATH path = {};
++        path.Size = sizeof(path);
++        path.MonitorObject = MonitorCreateOut.MonitorObject;
++        path.Position = { 0, 0 };
++        path.Resolution = { 1280, 720 };
++        path.Rotation = DISPLAYCONFIG_ROTATION_IDENTITY;
++        path.RefreshRate = { 60, 1 };
++        path.VSyncFreqDivider = 1;
++        path.MonitorScaleFactor = 100;
++        // Zero physical-size overrides preserve the OS/monitor defaults.
++        IDARG_IN_ADAPTERDISPLAYCONFIGUPDATE update = {};
++        update.PathCount = 1;
++        update.pPaths = &path;
++        Status = IddCxAdapterDisplayConfigUpdate(m_Adapter, &update);
++        TraceLoggingWrite(g_labTrace, "RemoteDisplayConfigUpdate",
++            TraceLoggingNTStatus(Status, "Status"),
++            TraceLoggingUInt32(path.Resolution.cx, "Width"),
++            TraceLoggingUInt32(path.Resolution.cy, "Height"),
++            TraceLoggingBool(Status == STATUS_GRAPHICS_INDIRECT_DISPLAY_DEVICE_STOPPED, "SessionOrAdapterStopping"));
++        // STOPPED is an expected disconnection race, not a reason to crash the
++        // driver. Preserve all statuses; do not retry or report fake readiness.
++    }
++    return Status;
+ }
+ 
+ IndirectMonitorContext::IndirectMonitorContext(_In_ IDDCX_MONITOR Monitor) :
+@@ -692,14 +733,12 @@
+ 
+     TraceLoggingWrite(g_labTrace, "AdapterInitFinished", TraceLoggingNTStatus(pInArgs->AdapterInitStatus, "Status"));
+     auto* pDeviceContextWrapper = WdfObjectGet_IndirectDeviceContextWrapper(AdapterObject);
+-    if (NT_SUCCESS(pInArgs->AdapterInitStatus))
+-    {
+-        for (DWORD i = 0; i < IDD_SAMPLE_MONITOR_COUNT; i++)
+-        {
+-            pDeviceContextWrapper->pContext->FinishInit(i);
+-        }
+-    }
+-
++    if (!NT_SUCCESS(pInArgs->AdapterInitStatus)) return pInArgs->AdapterInitStatus;
++    for (DWORD i = 0; i < IDD_SAMPLE_MONITOR_COUNT; i++)
++    {
++        const NTSTATUS status = pDeviceContextWrapper->pContext->FinishInit(i);
++        if (!NT_SUCCESS(status)) return status;
++    }
+     return STATUS_SUCCESS;
+ }
+ 
+--- a/Driver.h
++++ b/Driver.h
+@@ -97,8 +97,8 @@
+             IndirectDeviceContext(_In_ WDFDEVICE WdfDevice);
+             virtual ~IndirectDeviceContext();
+ 
+-            void InitAdapter();
+-            void FinishInit(UINT ConnectorIndex);
++            NTSTATUS InitAdapter();
++            NTSTATUS FinishInit(UINT ConnectorIndex);
+ 
+         protected:
+             WDFDEVICE m_WdfDevice;
+--- a/RETSARRemoteIddLab.inf.template
++++ b/RETSARRemoteIddLab.inf.template
+@@ -1,21 +1,21 @@
+-; RETSAR laboratory source template; derived from Microsoft IddSample under MS-PL.
++; RETSAR remote-session laboratory source template; derived from Microsoft IddSample under MS-PL.
+ [Version]
+ Signature="$Windows NT$"
+ Class=Display
+ ClassGUID={4D36E968-E325-11CE-BFC1-08002BE10318}
+ ClassVer=2.0
+ Provider=%Manufacturer%
+-CatalogFile=RETSARIddLab.cat
++CatalogFile=RETSARRemoteIddLab.cat
+ DriverVer=@DRIVER_DATE@,@DRIVER_VERSION@
+ PnpLockDown=1
+ 
+ [Manufacturer]
+ %Manufacturer%=Models,NTamd64.10.0.3..20348
+ [Models.NTamd64.10.0.3..20348]
+-%DeviceName%=DeviceInstall,RETSARIddLab
++%DeviceName%=DeviceInstall,RETSARRemoteIddLab
+ 
+ [SourceDisksFiles]
+-RETSARIddLab.dll=1
++RETSARRemoteIddLab.dll=1
+ [SourceDisksNames]
+ 1=%DiskName%
+ [DestinationDirs]
+@@ -37,17 +37,17 @@
+ ServiceBinary=%12%\WUDFRd.sys
+ 
+ [DeviceInstall.NT.Wdf]
+-UmdfService=RETSARIddLab,RETSARIddLab_Service
+-UmdfServiceOrder=RETSARIddLab
++UmdfService=RETSARRemoteIddLab,RETSARRemoteIddLab_Service
++UmdfServiceOrder=RETSARRemoteIddLab
+ UmdfKernelModeClientPolicy=AllowKernelModeClients
+-[RETSARIddLab_Service]
++UmdfHostProcessSharing=ProcessSharingDisabled
++[RETSARRemoteIddLab_Service]
+ UmdfLibraryVersion=2.25.0
+-ServiceBinary=%12%\UMDF\RETSARIddLab.dll
++ServiceBinary=%12%\UMDF\RETSARRemoteIddLab.dll
+ UmdfExtensions=IddCx0102
+-UmdfHostProcessSharing=ProcessSharingDisabled
+ [DriverCopy]
+-RETSARIddLab.dll
++RETSARRemoteIddLab.dll
+ [Strings]
+ Manufacturer="RETSAR Laboratory"
+-DeviceName="RETSAR Laboratory Virtual Display"
+-DiskName="RETSAR private laboratory driver"
++DeviceName="RETSAR Laboratory Remote Virtual Display"
++DiskName="RETSAR remote laboratory driver"
