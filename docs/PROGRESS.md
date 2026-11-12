@@ -2,6 +2,18 @@
 
 Progress is organized by capability and evidence. A compiled component, simulated transaction or existing session ID is not recorded as an operational native seat.
 
+## General-purpose desktop console and product identity
+
+RETSAR now presents itself as a general-purpose Windows desktop project. The native **RETSAR Desktop** console separates Overview, Displays and Activity, reads current session/display state asynchronously, and offers guarded open/resume actions through the existing child-session client. A clearly labeled `--preview` mode uses sample data without collecting session or device inventory or changing Windows sessions. The earlier gaming/automation pilot remains one application example, not a product dependency.
+
+The project has an original two-desktop logo, scalable artwork, executable icons, a documented visual system, contributor guidance and structured issue templates. Public documentation distinguishes the working child-desktop preview from the unfinished physical multiseat and production lifecycle work. [Desktop guide](DESKTOP.md) · [Product scope](PRODUCT.md) · [Design system](DESIGN.md).
+
+The management console refreshes only on explicit request and does not run an idle polling timer. The viewer cancels its 250 ms observation timer once a child connection is observed, eliminating 14,400 scheduled timer callbacks per connected hour; the previous connected-state callback already skipped COM/WTS queries. This is a control-flow reduction, not a measured CPU or memory saving. The new viewer also limits status invalidation to its header and filters accelerator forwarding to keyboard messages. Focus activation has new guarded forwarding, but F8 reliability remains unverified in a live session.
+
+The complete local build passed **1,508 C++/CLI checks**, including 27 desktop decision checks and 30 inert viewer checks. Independent JSON parsing also passed. The final interface rebuild retained the same passing focused contracts. The three native sample-data views were inspected visually. Separate render fixtures checked the same layout at 100%, 125% and 150% scaling, including a short 430-DIP case; these fixtures do not establish physical monitor DPI behavior. The normal console observed the already-active child desktop and disabled duplicate opening. Manual refresh was checked without reconnecting it. Session admission and asynchronous shutdown paths were also reviewed independently. These checks do not create or reconnect a child desktop.
+
+The active supervised pilot was preserved while the new interface and viewer were built separately. A new interface build does not retrofit the executable already running in that pilot. Automated tests, visual checks and CI packaging are recorded separately from live session evidence.
+
 ## First supervised Roblox and Zzen pilot
 
 One Roblox account and an isolated Zzen copy ran in the native child desktop. After the user prepared the game and started Zzen with its own button, the bot detected **Play Again**, sent two bounded click attempts and recorded **one confirmed replay transition**. The next match was observed. The user confirmed normal mouse and keyboard use in the parent desktop while farming continued. [Trial details and limitations](CHILD-SESSION-INPUT.md#first-supervised-farming-cycle).
@@ -176,7 +188,7 @@ The workflow badge refers to CI for its specific revision. It is not a native-se
 
 ## Reproducing the checks
 
-From an ordinary directory on C:, with the [build prerequisites](../README.md#getting-started):
+From an ordinary directory on C:, with the [build prerequisites](../README.md#build-and-explore):
 
 ```powershell
 .\build.ps1 -Test -Lab -RdsLab

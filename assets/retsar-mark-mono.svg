@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">RETSAR monochrome symbol</title>
+  <desc id="desc">Two distinct desktop frames. Single-color edition of the original RETSAR symbol.</desc>
+  <defs><mask id="separation"><rect width="256" height="256" fill="white"/><rect x="90" y="90" width="158" height="136" rx="25" fill="black"/></mask></defs>
+  <g mask="url(#separation)" stroke="#EFF4FC" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="16" y="30" width="148" height="112" rx="18"/>
+    <path d="M42 60h18m14 0h4M90 142v24m-27 0h54"/>
+  </g>
+  <g stroke="#EFF4FC" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="100" y="100" width="140" height="112" rx="18"/>
+    <path d="M126 130h18m14 0h4M170 212v24m-27 0h54"/>
+  </g>
+</svg>

@@ -1,7 +1,19 @@
-param([switch]$Test,[switch]$Lab,[switch]$RdsLab,[switch]$RdsTests,[switch]$ChildSessionLab)
+param([switch]$Test,[switch]$Lab,[switch]$RdsLab,[switch]$RdsTests,[switch]$ChildSessionLab,[switch]$Desktop)
 $ErrorActionPreference='Stop'
 if($RdsTests -and !$RdsLab){throw '-RdsTests requires -RdsLab.'}
 $base=$PSScriptRoot
+if($Desktop){$ChildSessionLab=$true}
+# Keep binaries and sources beside the checkout. Only the core's small path-
+# policy fixtures need C:, including when the repository itself lives on D:.
+$testOutputDirectory=Join-Path $base 'build'
+if($Test -and [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($testOutputDirectory)) -ine 'C:\'){
+ $testTemp=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Temp'
+ $testTemp=[IO.Path]::GetFullPath($testTemp)
+ if([IO.Path]::GetPathRoot($testTemp) -ine 'C:\'){throw 'The core tests require a small temporary fixture directory on C:.'}
+ $testOutputDirectory=Join-Path $testTemp ('RETSAR-tests-'+[guid]::NewGuid().ToString('N'))
+ New-Item -ItemType Directory -Path $testOutputDirectory | Out-Null
+ Write-Output "Core test fixtures: $testOutputDirectory. Build products remain in $base."
+}
 $vswhere='C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
 if(!(Test-Path -LiteralPath $vswhere)){throw 'Visual Studio Build Tools with C++ and the Windows SDK are required.'}
 $vs=& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -23,10 +35,10 @@ $sdkInstall=Get-ChildItem -LiteralPath "$sdk\Include" -Directory |
   if($candidateVersion -notmatch '^\d+(\.\d+){3}$'){return $false}
   $required=@("Include\$candidateVersion\ucrt\crtdbg.h","Include\$candidateVersion\um\Windows.h",
    "Include\$candidateVersion\shared\sdkddkver.h","Lib\$candidateVersion\ucrt\x64\ucrt.lib",
-   "Lib\$candidateVersion\um\x64\kernel32.lib","bin\$candidateVersion\x64\mt.exe")
+   "Lib\$candidateVersion\um\x64\kernel32.lib","bin\$candidateVersion\x64\mt.exe","bin\$candidateVersion\x64\rc.exe")
   @($required | Where-Object {!(Test-Path -LiteralPath (Join-Path $sdk $_) -PathType Leaf)}).Count -eq 0
  } | Sort-Object {[version]$_.Name} -Descending | Select-Object -First 1
-if(!$sdkInstall){throw 'A complete Windows SDK with UCRT headers, x64 libraries and mt.exe is required.'}
+if(!$sdkInstall){throw 'A complete Windows SDK with UCRT headers, x64 libraries, mt.exe and rc.exe is required.'}
 $ver=$sdkInstall.Name
 Write-Output "Toolchain: MSVC $($vcInstall.Name); Windows SDK $ver; x64."
 $inc=@("$vc\include","$sdk\Include\$ver\ucrt","$sdk\Include\$ver\um","$sdk\Include\$ver\shared") | ForEach-Object { '/I'+$_ }
@@ -38,6 +50,23 @@ Push-Location -LiteralPath "$base\build"
 try {
  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\src\main.cpp" "$base\src\windows_inventory.cpp" "$base\src\lifecycle.cpp" "$base\src\journal.cpp" "/Fe:$base\dist\RETSAR.exe" /link /SUBSYSTEM:CONSOLE /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\app.manifest" @libs user32.lib wtsapi32.lib bcrypt.lib
  if($LASTEXITCODE -ne 0){throw 'RETSAR compilation failed.'}
+ if($Desktop -or $ChildSessionLab){
+  & "$sdk\bin\$ver\x64\rc.exe" /nologo @inc "/I$base\assets" "/fo$base\build\RETSAR-brand.res" "$base\src\desktop\resources.rc"
+  if($LASTEXITCODE -ne 0){throw 'RETSAR application icon resource compilation failed.'}
+ }
+ if($Desktop){
+  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\src\desktop\main.cpp" "$base\build\RETSAR-brand.res" "/Fe:$base\dist\RETSAR-Desktop.exe" /link /SUBSYSTEM:WINDOWS /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\desktop\desktop.manifest" @libs user32.lib gdi32.lib wtsapi32.lib shell32.lib ole32.lib advapi32.lib dwmapi.lib
+  if($LASTEXITCODE -ne 0){throw 'Desktop console compilation failed.'}
+  # Inert help only; the build never opens the GUI or creates a desktop.
+  & "$base\dist\RETSAR-Desktop.exe" --help | Out-Host
+  if($LASTEXITCODE -ne 0){throw 'Desktop console help check failed.'}
+ }
+ if($Test -or $Desktop){
+  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\desktop_model_tests.cpp" "/Fe:$base\build\RETSAR-desktop-model-tests.exe" /link /SUBSYSTEM:CONSOLE @libs wtsapi32.lib
+  if($LASTEXITCODE -ne 0){throw 'Desktop model test compilation failed.'}
+  & "$base\build\RETSAR-desktop-model-tests.exe"
+  if($LASTEXITCODE -ne 0){throw 'Desktop model tests failed.'}
+ }
  if($Lab){
   New-Item -ItemType Directory -Force -Path "$base\dist\lab" | Out-Null
   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\src\lab\seat_probe.cpp" "/Fe:$base\dist\lab\RETSAR-seat-probe.exe" /link /SUBSYSTEM:CONSOLE /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\app.manifest" @libs user32.lib gdi32.lib advapi32.lib
@@ -49,7 +78,8 @@ try {
  if($ChildSessionLab){
   New-Item -ItemType Directory -Force -Path "$base\dist\lab" | Out-Null
   foreach($probe in @(@{source='child_session_probe';name='child-session-probe'},@{source='child_session_toggle_probe';name='child-session-toggle'},@{source='child_session_client';name='child-session-client'},@{source='child_session_input_probe';name='child-session-input-probe'},@{source='child_session_task_probe';name='child-session-task-probe'})){
-   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\src\lab\$($probe.source).cpp" "/Fe:$base\dist\lab\RETSAR-$($probe.name).exe" /link /SUBSYSTEM:CONSOLE @libs wtsapi32.lib ole32.lib oleaut32.lib uuid.lib user32.lib gdi32.lib advapi32.lib taskschd.lib bcrypt.lib
+   $probeResource=@();if($probe.source -eq 'child_session_client'){$probeResource=@("$base\build\RETSAR-brand.res")}
+   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\src\lab\$($probe.source).cpp" @probeResource "/Fe:$base\dist\lab\RETSAR-$($probe.name).exe" /link /SUBSYSTEM:CONSOLE /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\app.manifest" @libs wtsapi32.lib ole32.lib oleaut32.lib uuid.lib user32.lib gdi32.lib advapi32.lib taskschd.lib bcrypt.lib
    if($LASTEXITCODE -ne 0){throw 'Child-session laboratory diagnostic compilation failed.'}
    # Help only: never query or change session state as part of a build.
    & "$base\dist\lab\RETSAR-$($probe.name).exe" --help
@@ -57,8 +87,8 @@ try {
   }
  }
  if($Test -or $ChildSessionLab){
-  foreach($contract in @('child_session_status','child_session_toggle','child_session_client_gate','child_session_input_contract','child_session_client_mode','child_session_client_diagnostics')){
-   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\${contract}_tests.cpp" "/Fe:$base\build\RETSAR-${contract}-tests.exe" /link /SUBSYSTEM:CONSOLE @libs wtsapi32.lib ole32.lib oleaut32.lib uuid.lib user32.lib gdi32.lib advapi32.lib taskschd.lib bcrypt.lib
+  foreach($contract in @('child_session_status','child_session_toggle','child_session_client_gate','child_session_input_contract','child_session_client_mode','child_session_client_diagnostics','child_session_viewer')){
+   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\${contract}_tests.cpp" "/Fe:$base\build\RETSAR-${contract}-tests.exe" /link /SUBSYSTEM:CONSOLE /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\app.manifest" @libs wtsapi32.lib ole32.lib oleaut32.lib uuid.lib user32.lib gdi32.lib advapi32.lib taskschd.lib bcrypt.lib
    if($LASTEXITCODE -ne 0){throw "Child-session pure test compilation failed: $contract"}
    & "$base\build\RETSAR-${contract}-tests.exe"
    if($LASTEXITCODE -ne 0){throw "Child-session pure tests failed: $contract"}
@@ -108,8 +138,8 @@ try {
   Write-Output 'PASS JSON parsed independently by PowerShell ConvertFrom-Json (test fixture; no inventory).'
   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\lifecycle_tests.cpp" "$base\src\lifecycle.cpp" "$base\src\journal.cpp" "/Fe:$base\build\RETSAR-lifecycle-tests.exe" /link /SUBSYSTEM:CONSOLE @libs user32.lib bcrypt.lib
   if($LASTEXITCODE -ne 0){throw 'Lifecycle test compilation failed.'}
-  & "$base\build\RETSAR-lifecycle-tests.exe" "$base\build"
+  & "$base\build\RETSAR-lifecycle-tests.exe" $testOutputDirectory
   if($LASTEXITCODE -ne 0){throw 'Lifecycle tests failed.'}
-  & "$base\tests\cli_tests.ps1"
+  & "$base\tests\cli_tests.ps1" -TestOutputDirectory $testOutputDirectory
  }
 } finally {Pop-Location;$env:PATH=$compilerPathBefore}

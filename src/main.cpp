@@ -24,7 +24,7 @@ seats::Json engineReport(){
         {"windowsCapabilities",seats::capabilityJson(executor.capabilities())},
         {"hostInspected",false},
         {"journalOpened",false},
-        {"reason","Native session creation, physical display ownership and independent input are not implemented. No real seat can be started."}
+        {"reason","Production session lifecycle and exclusive physical display/input assignment are not connected to this core. The separate Desktop preview hosts the experimental child-session client."}
     };
 }
 void writeNewFile(const seats::LockedCParents& target,const std::string& data){

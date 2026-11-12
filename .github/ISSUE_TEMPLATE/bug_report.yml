@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a reproducible problem in RETSAR.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the smallest reproducible case. Do not include credentials, account files or raw private receipts. A desktop connection, a simulated test and a physical seat are different scenarios.
+  - type: input
+    id: revision
+    attributes:
+      label: RETSAR revision
+      description: Commit, branch or build identifier.
+      placeholder: Commit SHA or local build identifier
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Windows edition/build, display layout, scaling and the component used. Include hardware only when relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Start from a known state and include the action that triggers the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Expected and observed behavior
+      description: Include the exact error, whether the principal desktop remained usable, and whether RETSAR left a resource active.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Relevant test output, a small log excerpt or a screenshot with personal information removed. State any checks you could not complete.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: I have removed credentials, tokens, account details and private files from this report.
+          required: true

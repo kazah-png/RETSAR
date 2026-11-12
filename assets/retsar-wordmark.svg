@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="160" viewBox="0 0 640 160" role="img" aria-labelledby="title desc">
+  <title id="title">RETSAR wordmark</title>
+  <desc id="desc">RETSAR logo with the two-desktop symbol. Original RETSAR artwork.</desc>
+  <defs><mask id="separation"><rect width="256" height="256" fill="white"/><rect x="90" y="90" width="158" height="136" rx="25" fill="black"/></mask></defs>
+  <g transform="translate(12 10) scale(.53)" fill="none" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <g mask="url(#separation)" stroke="#79CFF2"><rect x="16" y="30" width="148" height="112" rx="18"/><path d="M42 60h18m14 0h4M90 142v24m-27 0h54"/></g>
+    <g stroke="#5DE4C7"><rect x="100" y="100" width="140" height="112" rx="18"/><path d="M126 130h18m14 0h4M170 212v24m-27 0h54"/></g>
+  </g>
+  <text x="172" y="111" fill="#EFF4FC" font-family="Segoe UI,Arial,sans-serif" font-size="85" font-weight="700" letter-spacing="-3">RETSAR</text>
+</svg>

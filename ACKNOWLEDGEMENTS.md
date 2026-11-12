@@ -1,6 +1,6 @@
 # Acknowledgements and provenance
 
-RETSAR is an independent project maintained by [kazah-png](https://github.com/kazah-png). Its original code and visual assets are covered by the [MIT license in this repository](LICENSE).
+RETSAR is an independent project maintained by [kazah-png](https://github.com/kazah-png). Its scope is general-purpose Windows desktop workspaces. Its original code and visual assets are covered by the [MIT license in this repository](LICENSE).
 
 ## Tools and assistance
 
@@ -23,3 +23,7 @@ The names and links recognize contributions to the development process. They do 
 The architecture cites primary Microsoft documentation for the APIs used. References support review of specific decisions; they do not replace Windows testing or independently demonstrate the viability of the pending multiseat provider.
 
 The [Anode child-client implementation](https://github.com/skulitom/Anode/blob/main/src/Anode/Daemon/RdpViewer.cs) was consulted to diagnose the explicit CredSSP requirement. RETSAR's OLE host and laboratory client are original code against Microsoft's documented interfaces; no Anode source or binary is redistributed.
+
+## Original visual identity
+
+The two-desktop symbol, wordmark, repository banner and native interface visual system are original RETSAR work. Their editable vector sources are in [assets](assets), with usage and color definitions in the [visual system](docs/DESIGN.md). They do not incorporate the logos of research tools, operating-system vendors or applications used during validation.

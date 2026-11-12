@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Product direction and current scope
+    url: https://github.com/kazah-png/RETSAR/blob/main/docs/PRODUCT.md
+    about: Check the desktop goals and acceptance criteria before proposing a new feature.
+  - name: Verified progress
+    url: https://github.com/kazah-png/RETSAR/blob/main/docs/PROGRESS.md
+    about: See which capabilities have actually been tested.

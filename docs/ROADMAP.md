@@ -1,6 +1,6 @@
 # Roadmap
 
-RETSAR aims to provide two independent Windows seats with explicit display and input assignments. This roadmap uses acceptance criteria; it is not a completion percentage or a delivery schedule.
+RETSAR aims to provide functional, general-purpose Windows desktops on one computer, with explicit session, display and input management. Browsing, productivity, development, media and automation are intended use cases, not blanket compatibility claims. A gaming/automation pilot is one validation case rather than the product definition. This roadmap uses acceptance criteria; it is not a completion percentage or a delivery schedule.
 
 ## Available foundation · 0.2.0-engine-preview
 
@@ -16,7 +16,19 @@ RETSAR aims to provide two independent Windows seats with explicit display and i
 - [x] Optional SDK bridge with explicit mock callback and cancellation tests.
 - [x] Opt-in laboratory process supervision with fake-API and owned-helper tests.
 
-A completed foundation does not amount to a functional seat. The next milestone is the project's critical dependency.
+A completed foundation does not amount to a complete physical seat. Native child-desktop creation, resumption and a supervised application pilot are recorded separately in [Verified progress](PROGRESS.md).
+
+## Desktop experience
+
+- [x] Provide a native management console with actual desktop/display state and clear actions.
+- [x] Offer guarded create/resume actions through the existing child-session client; Windows handles identity confirmation when required.
+- [ ] Make keyboard focus and shortcuts reliable in the viewer.
+- [ ] Make connecting, connected, disconnected and recovery states understandable.
+- [ ] Validate ordinary browsing, documents and development applications separately.
+- [ ] Measure idle work, connection cost, memory and sustained desktop use before setting performance targets.
+- [x] Package a reproducible developer preview with a usage guide and checksums; production installation and owned-session teardown remain open.
+
+**Acceptance criterion:** a user can open, use, pause interaction with and recover an independent desktop without guessing at its state. Completing this experience does not by itself prove physical device exclusivity.
 
 ## P0 · Demonstrate a native seat in an independent laboratory
 

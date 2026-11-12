@@ -1,130 +1,104 @@
 <p align="center">
-  <img src="assets/retsar-banner.svg" alt="RETSAR — Runtime Environment for Terminal Sharing and Allocation of Resources. Engine preview." width="100%">
+  <img src="assets/retsar-banner.svg" alt="RETSAR — Independent desktops. Shared hardware. General-purpose Windows workspaces." width="100%">
 </p>
 
 <p align="center">
   <a href="https://github.com/kazah-png/RETSAR/actions/workflows/windows.yml"><img src="https://github.com/kazah-png/RETSAR/actions/workflows/windows.yml/badge.svg" alt="Windows build and tests"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-6FE7C8?style=flat-square" alt="MIT"></a>
-  <img src="https://img.shields.io/badge/C%2B%2B-17-8EA8FF?style=flat-square" alt="C++17">
-  <img src="https://img.shields.io/badge/status-engine_preview-F0C879?style=flat-square" alt="Engine preview">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-5DE4C7?style=flat-square" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/C%2B%2B-17-79CFF2?style=flat-square" alt="C++17">
+  <img src="https://img.shields.io/badge/status-development_preview-F2CB81?style=flat-square" alt="Development preview">
 </p>
-
-<p align="center"><b>An open core for independent Windows seats.</b><br>
-Verifiable plans · explicit ownership · persistent recovery</p>
 
 <p align="center">
-  <a href="#getting-started">Build</a> ·
-  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
-  <a href="docs/NATIVE-BACKEND.md">Native backend research</a> ·
-  <a href="docs/RDS-BRIDGE.md">SDK bridge</a> ·
-  <a href="docs/SERVICE-CONTROL.md">Service control</a> ·
-  <a href="docs/RDS-INTEGRATION-GAPS.md">Integration gaps</a> ·
-  <a href="lab/README.md">Isolated laboratory</a> ·
+  <a href="#build-and-explore">Get started</a> ·
+  <a href="docs/PRODUCT.md">Product direction</a> ·
   <a href="docs/ROADMAP.md">Roadmap</a> ·
   <a href="docs/PROGRESS.md">Verified progress</a> ·
-  <a href="ACKNOWLEDGEMENTS.md">Acknowledgements</a>
+  <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
-## Current status
+**RETSAR is an open-source project for independent, general-purpose Windows desktop workspaces on one computer.** The aim is a second usable desktop with its own applications and input, while the principal desktop remains available for everyday work.
 
-**RETSAR 0.2.0-engine-preview cannot create a second real Windows seat yet.** It includes a C++17 transactional core, a durable journal and read-only diagnostics. A separate laboratory client has now opened an actual child desktop on the observed Windows Core host while its parent remained active. Production session lifecycle, physical display assignment and independent input are still pending.
+RETSAR means **Runtime Environment for Terminal Sharing and Allocation of Resources**. Browsing, development, productivity and application testing are part of its intended scope. Roblox and Zzen were used in one supervised pilot; they are neither dependencies nor the definition of the product.
 
-The goal is two independent seats on one computer, with explicit resource assignments. This preview makes the foundations of that engine available for review and testing. It is not a multiseat application ready for everyday use.
+## The preview today
 
-| Component | Verified status |
-| --- | --- |
-| Windows, display and input metadata inventory | Implemented, read-only |
-| Transactional planning, reservations, startup and teardown | Implemented in the core; effects tested with a simulated provider |
-| Journal, ownership receipts and restart recovery | Implemented and tested |
-| Separate laboratory seat probe | Executed inside a Server RDP candidate; own-process identity and software rendering observed |
-| Optional RDS SDK bridge | An authenticated controller reached the actual service listener; Windows rejected the connection with `0x80070057`; no session was created |
-| Guest service control | Local authenticated pipe, separate MTA worker, bounded operation and observed real request; [contract and results](docs/SERVICE-CONTROL.md) |
-| Licensing framing and remote display contracts | Inert tests passed; no licensing engine or remote driver is connected to the provider |
-| Isolated laboratory supervisor | Fake-API tests and local owned-process termination checks passed |
-| Windows Server laboratory guest | Desktop booted with WHPX; bootstrap verified the RD Session Host role and running service |
-| Provider activation diagnostics | [21 service-origin events verified activation](docs/ACTIVATION-TRACE.md); four earlier failed captures retained |
-| Console virtual-display reference | [Guest lifecycle and frame acquisition observed](lab/idd-reference/RESULTS.md); cleanup verified after a cold boot; physical/session/input isolation unverified |
-| Server reference observation tools | Concurrent guest logons and a manual same-boot sign-out/cleanup cycle verified; helper observation timeout remains |
-| Remote IDD adaptation | [Source compiles and INF validates](lab/idd-remote-reference/README.md); no remote runtime test |
-| Child-session client | [Native child desktop observed on the target Core host](docs/CHILD-SESSIONS.md), with the parent still active; physical isolation and application compatibility unverified |
-| Creation of a real Windows seat | **Not implemented** |
-| Independent physical display and keyboard/mouse | **Not implemented** |
-| Service, drivers and management interface | Pending |
+RETSAR has opened and resumed a real native Windows child desktop on the tested Core-edition host. A bounded input experiment delivered mouse and keyboard input there while sampled parent state stayed unchanged. A subsequent one-account Roblox/Zzen pilot confirmed automatic replay while the user reported normal mouse and keyboard use on the principal desktop.
 
-The laboratory components can be compiled and tested on D: with `.\build.ps1 -RdsLab -RdsTests`. This builds the controller and runs only the inert RDS/component suites; it does not register a provider, enable a host service or create a session.
+**This is a development preview, not a production multiseat replacement.** General application compatibility, exclusive physical displays and devices, dependable session teardown, reconnect recovery and prolonged operation still require validation. The child desktop shares the user's profile; it is not a separate-account security boundary.
 
-## What the core provides
+| Area | Available now | Still to prove or complete |
+| --- | --- | --- |
+| **RETSAR Desktop** | Native management console with Overview, Displays and Activity views; read-only refresh and guarded viewer actions | Complete desktop lifecycle and device assignment |
+| **Desktop viewer** | Actual child-session creation and interactive resumption on the tested host | Unattended reconnect, reliable keyboard shortcuts and broader Windows coverage |
+| **Input** | Exact synthetic mouse/key receipt in the child; a supervised application pilot | Exclusive physical keyboard/mouse ownership and continuous isolation |
+| **Engine** | Validated plans, reservations, durable receipts and conservative recovery; simulated effects in tests | Integration with a production native provider |
+| **Display research** | Observed console virtual-display lifecycle; remote IDD source builds and validates | Independent physical output and remote runtime acceptance |
 
-- **Plan before acting.** Each plan binds configuration, reservations, expiration and provider identity. It can be consumed only once.
-- **Record before changing resources.** Intent is committed to the journal before asking the provider for an effect.
-- **Release only owned resources.** Receipts identify the run, operation and resource incarnation. A reused ID does not authorize cleanup.
-- **Preserve uncertainty.** An uncertain operation requires reconciliation; it does not trigger a blind second creation.
-- **Keep simulation explicit.** The simulated provider is compiled only into tests. The public executable reports native capabilities as pending.
+The [evidence record](docs/PROGRESS.md) distinguishes implemented code, inert tests and live observations. A green build is not proof of a working physical seat.
 
-## Getting started
+## Build and explore
 
-Use Windows x64, Visual Studio Build Tools with C++ tools and the Windows SDK, and PowerShell. Run the suite from an ordinary directory on **C:**: this preview restricts journal and report files to that drive.
+Use **Windows x64**, **Visual Studio Build Tools with C++**, the **Windows SDK** and **PowerShell**. Source builds are the primary development path; there is no production installer. Successful [Windows CI runs](https://github.com/kazah-png/RETSAR/actions/workflows/windows.yml) also provide a `RETSAR-desktop-preview-windows-x64` artifact with the console, viewer, usage guide and SHA-256 checksums. These unsigned developer snapshots retain the laboratory prerequisites described below.
 
 ```powershell
-.\build.ps1 -Test
-.\dist\RETSAR.exe --engine-status
+.\build.ps1 -Desktop
+.\dist\RETSAR-Desktop.exe
 ```
 
-The first command compiles with C++17 and `/W4 /WX`, then runs the model, persistence, lifecycle and CLI tests. The second reports provider readiness **without inspecting devices, opening a journal or creating sessions**.
+The desktop build also compiles the child-session tools used by its guarded viewer action. Its checks invoke help and inert tests; it does not create or reconnect a desktop. The console observes current state and offers explicit actions when their prerequisites are met. An already active viewer is preserved.
 
-To request the read-only inventory:
+For a visual preview with clearly labeled sample data and no session or device inventory:
 
 ```powershell
+.\dist\RETSAR-Desktop.exe --preview
+```
+
+For the existing command-line tools:
+
+```powershell
+.\dist\RETSAR.exe --engine-status
 .\dist\RETSAR.exe --json
 ```
 
-The report includes the Windows version, current session, visible monitors, Raw Input metadata and sessions exposed by WTS. It does not record keystrokes. Session visibility may be incomplete.
+`--engine-status` reports capability readiness without inspecting devices. `--json` explicitly requests read-only Windows, display, Raw Input metadata and session inventory; it does not record keystrokes.
 
-To save a report, `--output` requires a **new** file in an existing directory on C: and never overwrites one. See `--help` for the syntax. The current CLI has no commands to start seats, assign devices or install components.
+**Current path constraints:** code and builds can remain on D:. Core journal and CLI test fixtures use a small temporary directory on C: automatically; the underlying C:-only file policy is unchanged. The child-session experiment currently keeps new receipts under `D:\RETSAR-Lab\RETSAR\private`. This is still a laboratory path constraint rather than a portable installation experience. [Desktop usage](docs/DESKTOP.md) · [Build and validation](CONTRIBUTING.md#build-and-test).
 
-## Laboratory instrument
+## A desktop-first experience
 
-A separate probe is available to collect evidence inside a candidate session. Compile it without opening its window:
+![RETSAR Desktop native interface in design-preview mode, showing sample data](assets/retsar-desktop-preview.jpg)
 
-```powershell
-.\build.ps1 -Test -Lab
-.\dist\lab\RETSAR-seat-probe.exe --help
-```
+*Native Windows interface running in `--preview` mode. The screenshot contains illustrative sample data, not a live desktop status claim.*
 
-The build runs only the probe's help and pure tests. Interactive mode requires explicit candidate and reference session IDs. It has now executed inside the disposable Server guest's RDP candidate, reporting its own process identity and a software render adapter. The probe neither creates sessions nor proves independence by observing an ID or receiving synthetic input. See its [contract and scope](docs/NATIVE-BACKEND.md#c-laboratory-instrument).
 
-The [guest session observer](lab/SESSION-OBSERVATION.md) and [guest-local RDP reference](lab/RDP-REFERENCE.md) verified a distinct active guest logon beside the original console. The first candidate's exported probe report was validated, including its user SID matching the account receipt. After recovering an interrupted cleanup, a focused repeat produced complete before/connected/cleaned snapshots from one guest boot: the reference account was absent, active, then absent, while the original console was active at all three observations with unchanged logon time. Receipt-based cleanup and separate checks confirmed removal of the temporary account, credential and reference directory. The probe was not repeated in that cycle.
+The interface is organized around desktops, displays and activity. It shows observed state, offers useful next actions and keeps unavailable capabilities explicit. It does not present an application-specific bot panel or imply that a visible monitor has already been assigned to a separate seat.
 
-Both connection-helper runs exceeded their five-minute observation window. Manual sign-out and guarded cleanup were independently verified; normal helper completion is not claimed. These are guest-only observations of Microsoft's RDP path, not a RETSAR native-seat backend or physical-display/input isolation.
+The native implementation uses the Windows UI stack rather than a bundled web runtime. Refreshes are explicit, and idle repainting and background work are kept bounded. Performance improvements must be measured; no unverified RAM, CPU or FPS savings are advertised. [Product principles](docs/PRODUCT.md) · [Visual system](docs/DESIGN.md).
 
-## Verification and limits
+## Engineering and verification
 
-The last complete local C++/CLI baseline passed **242 checks**, including **125 mock checks** for the optional [SDK bridge](docs/RDS-BRIDGE.md). One adversarial junction branch could not run locally because Windows denied its setup; it is not counted as passed. The current supervisor suite has **46 separate inert Python tests**, and local observer/reference/activation/boot-trace helpers total **175 inert PowerShell checks**. These totals do not include or substitute for live guest evidence.
+The verified [child-session CI revision](https://github.com/kazah-png/RETSAR/actions/runs/43303118692/job/131479239551) passed **1,451 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. These totals describe that tested revision; current interface changes and live desktop observations are tracked separately in [Verified progress](docs/PROGRESS.md).
 
-The latest verified [public Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43277022578/job/131388022533) passed **243 C++/CLI checks, 46 separate Python tests and 175 separate inert PowerShell checks**, with no failures or skips, at [`8b5f425`](https://github.com/kazah-png/RETSAR/commit/8b5f425439ef328964cbf51c9508c33b3626ffa6). It additionally parsed five guest scripts without executing them. Two separate local supervisor checks terminated only newly created sleeping helper processes. The [progress record](docs/PROGRESS.md) separates these scopes.
+The core records intent before changes, associates resource receipts with their originating run and preserves uncertainty instead of guessing ownership. Tests use an explicit simulated provider. Native session, driver and device experiments remain opt-in; normal builds and CI do not change the host's session or device configuration.
 
-Offline guest logs confirmed that the earlier setup failed in `oobeSystem`: the generated first-logon command was 1,318 characters, exceeding Microsoft's 1,024-character limit. The template now uses a fixed 309-character launcher, covered by a regression test. The corrected installation reached the Windows Server desktop. After a clean guest shutdown and verified disk/firmware checkpoint, an explicit WHPX launch also reached the desktop. The guest bootstrap emitted `rdsh-configured`, with the role installed and `TermService` running, while reporting `providerRegistered=false` and `createdSeat=false`. The later RDP reference observation does not establish provider readiness or a physical second seat. [CommandLine constraint](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands-synchronouscommand-commandline).
-
-Live validation corrected listener identity queries, an overlong temporary-account marker, AutoLogger ownership checks and the staged provider DLL's permissions. After four failed service captures and a separate manual COM control, the third attempt produced **21 decoded RETSAR events from TermService**, including successful manager initialization and listener startup. No client connection or user session was created. [Activation results and limits](docs/ACTIVATION-TRACE.md) retain the earlier failures and WHPX reset limitation. All three attempts completed verified cleanup of their owned resources with the standard RDP listener unchanged and captured evidence retained. No boot trace was armed for the third attempt.
-
-The supervisor's `--installed-guest` mode omits Windows installation media when resuming an existing disk; it does not repair failed setup. The [integration gaps](docs/RDS-INTEGRATION-GAPS.md) identify the remaining service, licensing, authentication and device contracts. The laboratory requires its own resource and evaluation-license approval; it does not provide a physical second seat on the host.
-
-Current development, builds and laboratory assets are on D:. The supervisor permits C: or D: laboratory roots with free-space checks on both C: and the selected volume. The core's journals and CLI output remain restricted to C:.
-
-These checks do not establish physical isolation, application compatibility, prolonged stability or an operational Windows provider. The journal's CRC detects corruption; it does not authenticate the file or prevent restoring an older complete version.
-
-[Windows CI](.github/workflows/windows.yml) rebuilds and tests the project in GitHub Actions. Its badge reports that workflow's status, not native multiseat availability.
-
-The separate [console IDD experiment](lab/idd-reference/RESULTS.md) verified a bounded device lifecycle and received 22 provider events, including a positive frame-acquisition event and a reported final counter of three acquired buffers. It is separate from the RDS listener experiment and created no new user session. The trace retains an initial recovered `DXGI_ERROR_ACCESS_LOST` and a final occurrence near teardown; moving pixels, sustained rendering and teardown causality were not demonstrated. Guest package/device/certificate removal and boot-setting restoration passed, and a separate cold boot verified their absence, the stopped trace and restored baseline boot setting.
+| Guide | What it covers |
+| --- | --- |
+| [Product direction](docs/PRODUCT.md) | General-purpose desktop scope and acceptance criteria |
+| [Desktop console](docs/DESKTOP.md) | Interface, viewer actions and current usage limits |
+| [Architecture](docs/ARCHITECTURE.md) | Core boundaries, ownership and recovery |
+| [Child desktops](docs/CHILD-SESSIONS.md) | Connection, resumption and observed limits |
+| [Input and application pilot](docs/CHILD-SESSION-INPUT.md) | Input correlation, parent observation and application evidence |
+| [Native backend research](docs/NATIVE-BACKEND.md) | Physical-seat requirements and candidate mechanisms |
+| [Laboratory](lab/README.md) | Isolated experiments and reproducible evidence |
+| [Roadmap](docs/ROADMAP.md) | Capability gates and outstanding work |
 
 ## Contributing
 
-The [roadmap](docs/ROADMAP.md) defines priorities and acceptance gates. Reviews of ownership and persistence, reproducible fault tests, and documented evidence for a native provider are especially useful. State what was observed, the environment used and what remains unverified.
+Reports should describe a concrete problem, expected behavior and the environment used. Small, reproducible changes and honest measurements are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions, validation scope and handling of private evidence.
 
-Changes that act on sessions or devices must preserve unrelated resources and supply independent validation. Until those requirements are met, `WindowsBlockedExecutor` stays blocked. See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution process.
+## License and credits
 
-## License and acknowledgements
+Original RETSAR code and visual assets are released under [MIT](LICENSE). Maintained by [kazah-png](https://github.com/kazah-png).
 
-RETSAR's original code and visual assets are released under [MIT](LICENSE). Maintained by [kazah-png](https://github.com/kazah-png).
-
-Acknowledgements include **Ghidra**, **REA**, and assistance identified by the maintainer as **GPT-6 Astra ULTRA**. [Acknowledgements and provenance](ACKNOWLEDGEMENTS.md) describe their roles, sources and licenses. They are not required dependencies for building RETSAR.
+Credits include **Ghidra**, **REA**, and assistance identified by the maintainer as **GPT-6 Astra ULTRA**. Their roles and provenance are recorded in [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md). They are not build dependencies or endorsements of the project.

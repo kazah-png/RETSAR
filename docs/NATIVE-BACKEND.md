@@ -2,7 +2,7 @@
 
 This document defines a research direction and its acceptance tests. It does not describe an operational provider or installation instructions for an everyday computer.
 
-The [original SDK bridge](RDS-BRIDGE.md) implements an opt-in integration scaffold. Its callback tests use mocks; a separate [live activation experiment](ACTIVATION-TRACE.md#verified-service-activation-after-the-dll-permission-correction) has now verified TermService loading the provider and starting its listener. An authenticated [service-control request](SERVICE-CONTROL.md) reached OnConnected and was rejected. No accepted native connection, licensing exchange or user-session creation has been demonstrated. The [isolated laboratory](../lab/README.md) documents the separate guest preparation and supervision path.
+The [original SDK bridge](RDS-BRIDGE.md) implements an opt-in integration scaffold. Its callback tests use mocks; a separate [live activation experiment](ACTIVATION-TRACE.md#verified-service-activation-after-the-dll-permission-correction) has now verified TermService loading the provider and starting its listener. An authenticated [service-control request](SERVICE-CONTROL.md) reached OnConnected and was rejected. No accepted native connection, licensing exchange or user-session creation has been demonstrated through this RDS bridge. The separate [child-session client](CHILD-SESSIONS.md) has created and resumed a desktop on the observed host. The [isolated laboratory](../lab/README.md) documents the separate guest preparation and supervision path.
 
 The [integration-gaps review](RDS-INTEGRATION-GAPS.md) details the service, licensing, authentication and device contracts still missing from that bridge.
 

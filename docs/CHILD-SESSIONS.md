@@ -23,6 +23,14 @@ Closing disconnects and releases only this control, then restores disabled state
 
 The optional build invokes only `--help` and fake-interface tests, never ActiveX activation or a connection. The gate suite passes **45 checks**, including false/wrong-type/read failures, missing enable or durable intent, cancellation before and during verification, exact one-call dispatch and retained exception information. The tests do not establish real Windows connectivity.
 
+## Desktop viewer interface
+
+The client window is now titled **RETSAR Desktop Viewer** and uses the shared RETSAR icon, a compact status header and a session badge. Its existing window class remains unchanged for compatibility. The separate [desktop management console](DESKTOP.md) invokes the same guarded connection and resumption modes; its interface does not bypass their prerequisites.
+
+Once a child connection is observed, the 250 ms observation timer is stopped and rearmed only when disconnect processing needs it. Status changes invalidate the header rather than the embedded desktop. Keyboard-only accelerator forwarding and guarded frame-activation notification are covered by **30 inert viewer checks**, using fake interfaces and message values. These checks do not establish real shortcut behavior. In particular, the earlier F8 failure remains an open live-validation item.
+
+The visual changes are compiled into new builds. An existing connected client is left running until its user chooses to replace it; no reconnection is required merely to update branding.
+
 ## Observed target-edition result
 
 On the observed Core-edition host, build 26300, the read-only query returned disabled. `WTSGetChildSessionId` failed with error 1168. The first toggle ran without an administrator token: enabling failed with error 5, while disabled readback and restoration succeeded. This did not establish an edition limitation.

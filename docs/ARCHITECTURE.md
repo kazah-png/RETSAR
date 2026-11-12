@@ -1,9 +1,15 @@
 # Architecture
 
-RETSAR separates system observation, transactional lifecycle management and the provider responsible for native operations. The public executable can inspect the host and report capabilities, but it cannot start a Windows seat.
+RETSAR is a general-purpose Windows desktop environment project. Its desktop console, experimental native session viewer and transactional core have distinct responsibilities and maturity levels. Applications running inside a desktop are independent of RETSAR; no game or automation tool is a runtime dependency.
+
+The desktop console provides the graphical entry point and observes current state. The separate child-session viewer has created and resumed a real Windows desktop in supervised trials. The core CLI still exposes read-only diagnostics: its production provider has not been connected to the experimental session path or to physical device assignment.
 
 ```mermaid
 flowchart TB
+    Desktop[RETSAR Desktop · native management UI] --> Observe[Async session and display observation]
+    Desktop -->|Explicit guarded action| Viewer[Desktop Viewer · experimental child session]
+    Viewer --> Child[General-purpose Windows child desktop]
+    Child --> Applications[User applications]
     CLI[RETSAR CLI] --> Status[Provider status · read only]
     CLI --> Inventory[WindowsInventoryBackend · inventory]
     Status --> Blocked[WindowsBlockedExecutor · capabilities pending]
@@ -21,6 +27,9 @@ The core is linked into the production build. The CLI does not expose its mutati
 
 | File | Responsibility |
 | --- | --- |
+| `src/desktop/` | Native desktop console, read-only observation and guarded viewer actions |
+| `src/lab/child_session_client.cpp` | Separate experimental desktop viewer and connection lifecycle |
+| `src/lab/child_session_activex.hpp` | Original OLE container and explicit child-mode gate |
 | `src/model.hpp` | Configuration, capabilities and structural validation |
 | `src/windows_inventory.cpp` | Windows, monitor, Raw Input metadata and visible-session diagnostics |
 | `src/lifecycle.hpp` / `.cpp` | Plans, reservations, transitions, ownership and recovery |
@@ -75,4 +84,4 @@ The ordinary build and test suite run only its help and pure tests. A separate l
 
 ## Pending integration
 
-The next obstacle is demonstrating creation and removal of a real interactive session with independent display and input. The contract and journal provide an integration path but do not implement those operating-system mechanisms. Read the [native backend investigation](NATIVE-BACKEND.md) and [P0/P1 acceptance criteria](ROADMAP.md) before enabling Windows provider capabilities.
+Native child-desktop creation and resumption have been demonstrated on the tested host. Remaining integration work includes reliable startup/recovery, owned-session termination, physical display/input assignment and longer application validation. The journal provides an integration path, but the experimental viewer is not yet a production `SeatExecutor`. Read the [native backend investigation](NATIVE-BACKEND.md) and [P0/P1 acceptance criteria](ROADMAP.md) before enabling Windows provider capabilities.

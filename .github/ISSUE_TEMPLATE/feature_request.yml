@@ -1,0 +1,28 @@
+name: Feature request
+description: Propose an improvement to the desktop experience.
+title: "[Feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: What are you trying to do with an independent desktop, and what currently gets in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior
+      description: Describe the result from the user's point of view. Include how success would be observed.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and alternatives
+      description: Relevant Windows versions, display/input requirements, and any existing workaround. Separate desktop features from application-specific automation.
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Optional primary documentation or related issues. Do not include private account information.

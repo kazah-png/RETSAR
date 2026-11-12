@@ -29,8 +29,10 @@ struct App {
     ULONGLONG start=0,closeStart=0,lastRecordedDispatch=0;
     const ULONGLONG diagnosticEpoch=GetTickCount64();
     diagnostics::StateObservation connectionObservation{};
-    wchar_t status[512]=L"Preparing a local child session. Physical display/input isolation is not implemented.";
-    ~App(){Cleanup();}
+    bool frameActive=false,frameActivationPending=false,pollTimerArmed=false;
+    UINT dpi=96;HFONT titleFont=nullptr,bodyFont=nullptr,smallFont=nullptr;HICON brandIcon=nullptr;
+    wchar_t status[512]=L"Preparing your desktop...";
+    ~App(){Cleanup();if(titleFont)DeleteObject(titleFont);if(bodyFont)DeleteObject(bodyFont);if(smallFont)DeleteObject(smallFont);}
     bool Record(const char* stage,HRESULT result=S_OK,LONG value=0,bool valuePresent=false)noexcept {
         try {
             std::ostringstream out;out.imbue(std::locale::classic());
@@ -65,8 +67,78 @@ struct App {
                 journalFailed=true;
         }catch(...){journalFailed=true;}
     }
+    int Scale(int value)const noexcept{return MulDiv(value,static_cast<int>(dpi),96);}
+    RECT Header()const noexcept{RECT r{};if(window)GetClientRect(window,&r);r.bottom=site.headerHeight;return r;}
+    void InvalidateHeader()noexcept{if(window){const RECT r=Header();InvalidateRect(window,&r,FALSE);}}
     void Status(const wchar_t* text)noexcept {
-        wcsncpy_s(status,text,_TRUNCATE);if(window)InvalidateRect(window,nullptr,TRUE);
+        wcsncpy_s(status,text,_TRUNCATE);InvalidateHeader();
+    }
+    void ConfigureAppearance(UINT value)noexcept {
+        dpi=value?value:96;site.headerHeight=Scale(88);
+        // Shared icon uses the project's canonical resource; Windows owns its lifetime.
+        brandIcon=static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr),MAKEINTRESOURCEW(101),
+            IMAGE_ICON,Scale(32),Scale(32),LR_SHARED));
+        const auto makeFont=[&](int size,int weight)noexcept {
+            return CreateFontW(-Scale(size),0,0,0,weight,FALSE,FALSE,FALSE,DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI");
+        };
+        HFONT title=makeFont(23,FW_SEMIBOLD),body=makeFont(13,FW_NORMAL),caption=makeFont(11,FW_SEMIBOLD);
+        if(title){if(titleFont)DeleteObject(titleFont);titleFont=title;}
+        if(body){if(bodyFont)DeleteObject(bodyFont);bodyFont=body;}
+        if(caption){if(smallFont)DeleteObject(smallFont);smallFont=caption;}
+        InvalidateHeader();
+    }
+    void PaintHeader(HDC dc)noexcept {
+        const int saved=SaveDC(dc);RECT bounds=Header();
+        SelectObject(dc,GetStockObject(DC_BRUSH));SelectObject(dc,GetStockObject(NULL_PEN));
+        SetDCBrushColor(dc,RGB(11,16,32));FillRect(dc,&bounds,static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        SetBkMode(dc,TRANSPARENT);
+        const auto font=[&](HFONT selected)noexcept{SelectObject(dc,selected?selected:GetStockObject(DEFAULT_GUI_FONT));};
+        const auto text=[&](const wchar_t* value,RECT r,UINT flags)noexcept{DrawTextW(dc,value,-1,&r,flags|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX|DT_END_ELLIPSIS);};
+        if(brandIcon)DrawIconEx(dc,Scale(24),Scale(11),brandIcon,Scale(32),Scale(32),0,nullptr,DI_NORMAL);
+        const int brandOffset=brandIcon?44:0;
+        font(titleFont);SetTextColor(dc,RGB(239,245,255));
+        text(L"RETSAR",{Scale(24+brandOffset),Scale(10),Scale(145+brandOffset),Scale(43)},DT_LEFT);
+        font(smallFont);SetTextColor(dc,RGB(93,228,199));
+        text(L"DESKTOP VIEWER",{Scale(155+brandOffset),Scale(16),Scale(320+brandOffset),Scale(42)},DT_LEFT);
+        const bool badgeVisible=bounds.right>=Scale(660);
+        const int statusRight=badgeVisible?bounds.right-Scale(238):bounds.right-Scale(24);
+        font(bodyFont);SetTextColor(dc,RGB(155,173,206));
+        text(status,{Scale(24),Scale(46),statusRight,Scale(72)},DT_LEFT);
+        if(badgeVisible) {
+            const int right=bounds.right-Scale(24),left=right-Scale(194);
+            SetDCBrushColor(dc,RGB(21,30,49));RoundRect(dc,left,Scale(13),right,Scale(43),Scale(12),Scale(12));
+            SetDCBrushColor(dc,observed&&!closing&&!finished?RGB(93,228,199):RGB(155,173,206));
+            Ellipse(dc,left+Scale(12),Scale(24),left+Scale(19),Scale(31));
+            const wchar_t* phase=finished?(finalBaselineRestored?L"DISCONNECTED":L"NEEDS ATTENTION"):
+                closing?L"DISCONNECTING":observed?L"DESKTOP CONNECTED":connectAttempted?L"CONNECTING":L"PREPARING";
+            font(smallFont);SetTextColor(dc,RGB(239,245,255));
+            text(phase,{left+Scale(28),Scale(14),right-Scale(8),Scale(42)},DT_LEFT);
+            wchar_t sessions[100]{};
+            if(observed)swprintf_s(sessions,L"Parent %lu  /  Desktop %lu",baseline.caller.value,observedId);
+            else swprintf_s(sessions,L"Parent %lu  /  Desktop pending",baseline.caller.value);
+            font(bodyFont);SetTextColor(dc,RGB(155,173,206));
+            text(sessions,{left,Scale(47),right,Scale(72)},DT_RIGHT);
+        }
+        SetDCBrushColor(dc,RGB(21,30,49));RECT line{0,bounds.bottom-1,bounds.right,bounds.bottom};
+        FillRect(dc,&line,static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        if(saved)RestoreDC(dc,saved);
+    }
+    bool ArmPollTimer()noexcept {
+        if(pollTimerArmed)return true;
+        pollTimerArmed=window&&SetTimer(window,PollTimer,250,nullptr)!=0;return pollTimerArmed;
+    }
+    void DisarmPollTimer()noexcept{if(window&&pollTimerArmed)KillTimer(window,PollTimer);pollTimerArmed=false;}
+    void NotifyFrameActivation()noexcept {
+        if(!frameActivationPending||initializing||closing||finished||cleanupStarted||outboundDepth||!site.active)return;
+        const bool active=frameActive;frameActivationPending=false;
+        // Notify this owned control when its containing frame gains/loses activation.
+        // No keyboard hook, global focus change, or remote key injection.
+        // https://learn.microsoft.com/windows/win32/api/oleidl/nf-oleidl-ioleinplaceactiveobject-onframewindowactivate
+        const HRESULT hr=NotifyFrameWindow(site.active.value,active?TRUE:FALSE,outboundDepth);
+        Record("FrameWindowActivation",hr,active?1:0,true);
+        if(stopRequested||journalFailed)BeginStop(journalFailed?"receipt-write":failureStage,journalFailed?HRESULT_FROM_WIN32(ERROR_WRITE_FAULT):failure);
+        else if(frameActivationPending&&window)PostMessageW(window,FrameSyncMessage,0,0);
     }
     HRESULT Step(const char* name,HRESULT result)noexcept {
         if(!Record(name,result)&&SUCCEEDED(result))result=HRESULT_FROM_WIN32(ERROR_WRITE_FAULT);
@@ -115,7 +187,7 @@ struct App {
         Com<IPersistStreamInit> initial;
         if(FAILED(hr=Step("QueryPersistStreamInit",object->QueryInterface(IID_IPersistStreamInit,reinterpret_cast<void**>(initial.put())))))return hr;
         if(FAILED(hr=Step("InitNew",initial->InitNew())))return hr;
-        if(FAILED(hr=Step("SetHostNames",object->SetHostNames(L"RETSAR Child session experiment",nullptr))))return hr;
+        if(FAILED(hr=Step("SetHostNames",object->SetHostNames(L"RETSAR Desktop Viewer",nullptr))))return hr;
         if(FAILED(hr=Step("SetContainedObject",OleSetContainedObject(object.value,TRUE))))return hr;
         if(FAILED(hr=Step("QueryDispatch",object->QueryInterface(IID_IDispatch,reinterpret_cast<void**>(dispatch.put())))))return hr;
         if(FAILED(hr=Step("QueryExtendedSettings",object->QueryInterface(__uuidof(ExtendedSettings),reinterpret_cast<void**>(extended.put())))))return hr;
@@ -193,7 +265,7 @@ struct App {
         connectAttempted=connection.attempted;
         if(FAILED(Step("connect-gate-child-property",connection.propertyResult)))return false;
         if(!connectAttempted||FAILED(Step("Connect",connection.connectResult)))return false;
-        Status(L"Child session experiment - connecting (60 second limit). Physical isolation is not implemented.");
+        Status(L"Connecting. Confirm your Windows identity if asked.");
         return true;
     }
     bool NewActiveChild(ULONG id)noexcept {
@@ -226,13 +298,13 @@ struct App {
             if(current.child.succeeded&&current.child.value!=MAXDWORD&&current.child.value!=baseline.caller.value&&
                current.caller.succeeded&&current.caller.value==baseline.caller.value&&
                current.console.value==baseline.console.value&&NewActiveChild(current.child.value)) {
-                observed=true;observedId=current.child.value;
+                observed=true;observedId=current.child.value;DisarmPollTimer();
                 if(request.mode==client::Mode::ResumeChild) {
                     Record("existing-child-resumed",S_OK,static_cast<LONG>(observedId),true);
-                    Status(L"Child session experiment - existing child session resumed. No new session or physical isolation claimed.");
+                    Status(L"Your desktop is ready. Click inside to use it.");
                 }else {
                     Record("active-child-observed",S_OK,static_cast<LONG>(observedId),true);
-                    Status(L"Child session experiment - native child session observed. Windowed access; no physical isolation.");
+                    Status(L"Your desktop is ready. Click inside to use it.");
                 }
             }
         }
@@ -244,10 +316,13 @@ struct App {
         if(FAILED(reason)&&SUCCEEDED(failure)){failure=reason;failureStage=stage;}
         if(initializing||outboundDepth){stopRequested=true;return;}
         closing=true;closeStart=GetTickCount64();
-        Status(L"Closing only this client and restoring the original child-session setting...");Record(stage,reason);
+        const bool timed=ArmPollTimer();
+        if(!timed)Record("disconnect-timer-unavailable",HRESULT_FROM_WIN32(GetLastError()));
+        Status(L"Disconnecting and restoring your previous settings...");Record(stage,reason);
         if(connectAttempted&&dispatch) {
             ++outboundDepth;const HRESULT hr=Invoke(dispatch.value,L"Disconnect",DISPATCH_METHOD);--outboundDepth;
             Record("DisconnectOwnControl",hr);
+            if(!timed)Cleanup();
         }else Cleanup();
     }
     void Cleanup()noexcept {
@@ -288,14 +363,13 @@ struct App {
                 <<",\"finalStatus\":"<<ToJson(final)<<",\"logoffAttempted\":false,\"physicalSeatVerified\":false}";
             if(!Append(receipt,out.str()).succeeded)journalFailed=true;
         }catch(...){journalFailed=true;}
-        finished=true;if(window)KillTimer(window,PollTimer);
+        finished=true;DisarmPollTimer();
         const bool residual=final.child.succeeded&&final.child.value!=MAXDWORD;
-        if(!baselineRestored)Status(L"Experiment stopped. Original setting NOT verified restored. Review the private receipt before retrying.");
-        else if(residual)Status(L"Client closed; setting restored. A child session ID remains. No session was logged off. Review the receipt.");
-        else if(observed)Status(L"Child session observed; client closed and setting restored. Session termination and physical isolation are unverified.");
+        if(!baselineRestored)Status(L"A setting could not be restored. Check the diagnostic report before retrying.");
+        else if(residual)Status(L"Viewer disconnected. Your desktop may still be running.");
+        else if(observed)Status(L"Viewer disconnected. Your previous settings were restored.");
         else {
-            swprintf_s(status,L"Child session experiment stopped. HRESULT 0x%08lX. Original setting restored; review private receipt.",static_cast<ULONG>(failure));
-            if(window)InvalidateRect(window,nullptr,TRUE);
+            Status(L"Connection stopped. Your previous settings were restored. See the diagnostic report.");
         }
         // Destruction is queued outside the COM cleanup stack. User-requested
         // close needs one click; automatic connection failure can show results.
@@ -314,15 +388,32 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
     if(!app)return DefWindowProcW(window,message,wp,lp);
     try {
         switch(message) {
-        case WM_PAINT: {
-            PAINTSTRUCT paint{};HDC dc=BeginPaint(window,&paint);RECT bounds{};
-            GetClientRect(window,&bounds);bounds.bottom=60;
-            FillRect(dc,&bounds,reinterpret_cast<HBRUSH>(COLOR_WINDOW+1));
-            SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(28,35,45));
-            bounds.left+=12;bounds.top+=10;bounds.right-=12;
-            DrawTextW(dc,app->status,-1,&bounds,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
-            EndPaint(window,&paint);return 0;
+        case WM_CREATE:app->ConfigureAppearance(GetDpiForWindow(window));return 0;
+        case WM_ERASEBKGND: {
+            const HDC dc=reinterpret_cast<HDC>(wp);RECT area{};GetClientRect(window,&area);
+            const COLORREF previous=SetDCBrushColor(dc,RGB(11,16,32));
+            FillRect(dc,&area,static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));SetDCBrushColor(dc,previous);return 1;
         }
+        case WM_PAINT: {
+            PAINTSTRUCT paint{};HDC dc=BeginPaint(window,&paint);
+            app->PaintHeader(dc);EndPaint(window,&paint);return 0;
+        }
+        case WM_DPICHANGED: {
+            app->ConfigureAppearance(HIWORD(wp));
+            const auto* suggested=reinterpret_cast<const RECT*>(lp);
+            if(suggested)SetWindowPos(window,nullptr,suggested->left,suggested->top,
+                suggested->right-suggested->left,suggested->bottom-suggested->top,SWP_NOZORDER|SWP_NOACTIVATE);
+            return 0;
+        }
+        case WM_GETMINMAXINFO: {
+            auto* limits=reinterpret_cast<MINMAXINFO*>(lp);
+            limits->ptMinTrackSize={app->Scale(640),app->Scale(360)};return 0;
+        }
+        case WM_ACTIVATE:
+            app->frameActive=LOWORD(wp)!=WA_INACTIVE;app->frameActivationPending=true;
+            PostMessageW(window,FrameSyncMessage,0,0);
+            return DefWindowProcW(window,message,wp,lp);
+        case FrameSyncMessage:app->NotifyFrameActivation();return 0;
         case WM_SIZE:
             if(app->inplace&&!app->initializing&&!app->closing&&!app->cleanupStarted&&!app->outboundDepth) {
                 RECT area=app->site.Area();
@@ -368,10 +459,10 @@ bool TokenIdentity(std::ostringstream& out) {
 
 int wmain(int argc,wchar_t* argv[]) {
     if(argc==1||(argc==2&&std::wcscmp(argv[1],L"--help")==0)) {
-        std::cout<<"RETSAR Child session experiment\n"
+        std::cout<<"RETSAR Desktop Viewer\n"
             <<"Usage: RETSAR-child-session-client.exe --connect-child --receipt <new.jsonl>\n"
             <<"       RETSAR-child-session-client.exe --resume-child-session <id> --receipt <new.jsonl>\n"
-            <<"Explicit mode hosts one local Remote Desktop ActiveX child session.\n"
+            <<"Explicit mode opens or resumes one local Windows child desktop.\n"
             <<"Receipt must be new under D:\\RETSAR-Lab\\RETSAR\\private\\.\n"
             <<"Connection deadline: 60 seconds. An observed connection stays open until closed.\n"
             <<"Closing disconnects only this client and restores the original disabled setting.\n"
@@ -420,24 +511,26 @@ int wmain(int argc,wchar_t* argv[]) {
         struct OleLifetime{~OleLifetime(){OleUninitialize();}} oleLifetime;
         App app;app.receipt=receipt.value;app.baseline=baseline;app.inventory=inventory;app.request=request;
         if(request.mode==client::Mode::ResumeChild)
-            app.Status(L"Preparing to resume the verified existing child session. No new session is being requested.");
+            app.Status(L"Preparing to resume your desktop...");
         WNDCLASSEXW definition{sizeof(definition)};
         definition.lpfnWndProc=WindowProc;definition.hInstance=GetModuleHandleW(nullptr);
-        definition.hCursor=LoadCursorW(nullptr,IDC_ARROW);definition.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
+        definition.hCursor=LoadCursorW(nullptr,IDC_ARROW);
+        definition.hIcon=LoadIconW(definition.hInstance,MAKEINTRESOURCEW(101));
+        definition.hIconSm=static_cast<HICON>(LoadImageW(definition.hInstance,MAKEINTRESOURCEW(101),IMAGE_ICON,16,16,LR_SHARED));
         definition.lpszClassName=L"RETSAR.ChildSessionExperiment";
         if(!RegisterClassExW(&definition))return 5;
         RECT work{};EnumDisplayMonitors(nullptr,nullptr,ChooseMonitor,reinterpret_cast<LPARAM>(&work));
         if(work.right<=work.left||work.bottom<=work.top)return 5;
         const int width=std::min(1120,static_cast<int>(work.right-work.left)-32);
         const int height=std::min(860,static_cast<int>(work.bottom-work.top)-48);
-        HWND window=CreateWindowExW(0,definition.lpszClassName,L"RETSAR - Child session experiment",
-            WS_OVERLAPPEDWINDOW,work.left+16,work.top+24,width,height,nullptr,nullptr,definition.hInstance,&app);
+        HWND window=CreateWindowExW(0,definition.lpszClassName,L"RETSAR Desktop Viewer",
+            WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,work.left+16,work.top+24,width,height,nullptr,nullptr,definition.hInstance,&app);
         if(!window)return 5;
         ShowWindow(window,SW_SHOWNOACTIVATE);
         // A launcher's STARTUPINFO can override the first ShowWindow argument.
         // The second call explicitly shows this owned window without activation.
         ShowWindow(window,SW_SHOWNOACTIVATE);
-        if(!SetTimer(window,PollTimer,250,nullptr))app.BeginStop("timer-create",HRESULT_FROM_WIN32(GetLastError()));
+        if(!app.ArmPollTimer())app.BeginStop("timer-create",HRESULT_FROM_WIN32(GetLastError()));
         else {
             const HRESULT prepared=app.Prepare();
             if(FAILED(prepared))app.BeginStop(app.failureStage,prepared);
@@ -445,12 +538,14 @@ int wmain(int argc,wchar_t* argv[]) {
                 app.BeginStop(app.failureStage,FAILED(app.failure)?app.failure:E_FAIL);
         }
         app.initializing=false;
+        PostMessageW(window,FrameSyncMessage,0,0);
         if(app.stopRequested||FAILED(app.failure))app.BeginStop(app.failureStage,app.failure);
         MSG message{};BOOL messageResult=0;
         while((messageResult=GetMessageW(&message,nullptr,0,0))>0) {
             HRESULT translated=S_FALSE;
-            if(app.site.active&&GetForegroundWindow()==window) {
-                ++app.outboundDepth;translated=app.site.active->TranslateAccelerator(&message);--app.outboundDepth;
+            if(KeyboardMessage(message.message)&&app.site.active&&!app.closing&&!app.cleanupStarted&&GetForegroundWindow()==window) {
+                Com<IOleInPlaceActiveObject> held;held.value=app.site.active.value;held->AddRef();
+                ++app.outboundDepth;translated=held->TranslateAccelerator(&message);held.reset();--app.outboundDepth;
                 if(app.stopRequested&&!app.closing)app.BeginStop(app.failureStage,app.failure);
             }
             if(translated==S_OK)continue;
@@ -463,6 +558,6 @@ int wmain(int argc,wchar_t* argv[]) {
         if(!app.finished)app.BeginStop("message-loop-ended",app.failure);
         app.Cleanup();
         return app.observed&&app.finalBaselineRestored&&!app.journalFailed&&SUCCEEDED(app.failure)?0:2;
-    }catch(...){std::cerr<<"Child-session experiment failed; inspect the private receipt.\n";return 5;}
+    }catch(...){std::cerr<<"Desktop viewer failed; inspect the private receipt.\n";return 5;}
 }
 

@@ -8,6 +8,15 @@
 namespace seats::lab::child::ax {
 inline constexpr GUID ClientClass={0xa0c63c30,0xf08d,0x4ab4,{0x90,0x7c,0x34,0x90,0x5d,0x77,0x0c,0x7d}};
 inline constexpr GUID ClientEvents={0x336d5562,0xefa8,0x482e,{0x8c,0xb3,0xc5,0xc0,0xfc,0x7a,0x7d,0xb6}};
+inline constexpr UINT FrameSyncMessage=WM_APP+43;
+inline bool KeyboardMessage(UINT message)noexcept{return message>=WM_KEYFIRST&&message<=WM_KEYLAST;}
+inline HRESULT NotifyFrameWindow(IOleInPlaceActiveObject* object,BOOL active,unsigned& outboundDepth)noexcept {
+    if(!object)return E_POINTER;
+    if(outboundDepth)return E_PENDING;
+    ++outboundDepth;object->AddRef();
+    const HRESULT result=object->OnFrameWindowActivate(active);
+    object->Release();--outboundDepth;return result;
+}
 // Original declaration of the documented ABI; verified against MsTscAx's type library.
 // https://learn.microsoft.com/windows/win32/termserv/imsrdpextendedsettings-property
 struct __declspec(uuid("302d8188-0052-4807-806a-362b628f9ac5")) ExtendedSettings: IUnknown {
@@ -102,12 +111,13 @@ class Site final:public IOleClientSite,public IOleInPlaceSite,public IOleInPlace
     std::atomic<ULONG> refs_{1};
 public:
     HWND window=nullptr;
+    LONG headerHeight=88;
     IOleInPlaceObject* inplace=nullptr;
     unsigned* outboundDepth=nullptr;
     const bool* closing=nullptr;
     bool changingRect=false;
     Com<IOleInPlaceActiveObject> active;
-    RECT Area()const noexcept{RECT r{};GetClientRect(window,&r);r.top=60;return r;}
+    RECT Area()const noexcept{RECT r{};GetClientRect(window,&r);r.top=(headerHeight<r.bottom?headerHeight:r.bottom);return r;}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** out)override {
         if(!out)return E_POINTER;*out=nullptr;
         if(iid==IID_IUnknown||iid==IID_IOleClientSite)*out=static_cast<IOleClientSite*>(this);
@@ -154,7 +164,8 @@ public:
     HRESULT STDMETHODCALLTYPE RequestBorderSpace(LPCBORDERWIDTHS)override{return INPLACE_E_NOTOOLSPACE;}
     HRESULT STDMETHODCALLTYPE SetBorderSpace(LPCBORDERWIDTHS)override{return S_OK;}
     HRESULT STDMETHODCALLTYPE SetActiveObject(IOleInPlaceActiveObject* object,LPCOLESTR)override {
-        if(object)object->AddRef();active.reset();active.value=object;return S_OK;
+        if(object)object->AddRef();active.reset();active.value=object;
+        if(window)PostMessageW(window,FrameSyncMessage,0,0);return S_OK;
     }
     HRESULT STDMETHODCALLTYPE InsertMenus(HMENU,LPOLEMENUGROUPWIDTHS)override{return E_NOTIMPL;}
     HRESULT STDMETHODCALLTYPE SetMenu(HMENU,HOLEMENU,HWND)override{return S_OK;}
