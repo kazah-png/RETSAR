@@ -298,7 +298,8 @@ function Expected-ClassShape {
                 [ordered]@{name='ThreadingModel';kind='String';data='Free'});children=@()}})}
 }
 function Expected-ListenerShape {
-    [ordered]@{values=@([ordered]@{name='LoadableProtocol_Object';kind='String';data=$classId},
+    [ordered]@{values=@([ordered]@{name='fEnableWinStation';kind='DWord';data=1},
+        [ordered]@{name='LoadableProtocol_Object';kind='String';data=$classId},
         [ordered]@{name='RETSARRunId';kind='String';data=$script:receipt.runId});children=@()}
 }
 try {
@@ -361,6 +362,10 @@ try {
         } finally { $key.Dispose() }
         $key = $registry.CreateSubKey($listenerKey)
         try {
+            # Inference for this custom listener from the documented RDP-Tcp
+            # prerequisite; an enabled key does not prove provider readiness.
+            # https://learn.microsoft.com/en-us/troubleshoot/windows-server/remote/remote-desktop-cannot-connect-remote-computer
+            $key.SetValue('fEnableWinStation',1,[Microsoft.Win32.RegistryValueKind]::DWord)
             $key.SetValue('LoadableProtocol_Object',$classId,[Microsoft.Win32.RegistryValueKind]::String)
             $key.SetValue('RETSARRunId',$runId,[Microsoft.Win32.RegistryValueKind]::String)
         } finally { $key.Dispose() }

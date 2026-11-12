@@ -36,15 +36,48 @@ Collection belongs in an explicitly prepared disposable Server laboratory. The s
 
 Use an ETW controller such as inbox `logman` with the fixed GUID, level and keyword above. Stop the capture before decoding the ETL with inbox `tracerpt` to XML. The collector must preserve command exit codes, the original ETL and any unrecognized events. A successfully generated XML file is insufficient: verify the provider GUID, event fields and expected service process before interpreting records.
 
-TraceLogging carries decoding metadata with its events, and modern TDH decodes that metadata without installing a manifest. See [event metadata](https://learn.microsoft.com/en-us/windows/win32/etw/event-metadata-overview) and the [tracerpt interface](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/tracerpt). Actual decoding on the selected guest must still be observed. Missing or dropped records, an empty trace, unknown fields and a rejected method are results to retain, not a reason to infer a successful stage.
+TraceLogging carries decoding metadata with its events, and modern TDH decodes that metadata without installing a manifest. See [event metadata](https://learn.microsoft.com/en-us/windows/win32/etw/event-metadata-overview) and the [tracerpt interface](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/tracerpt). A separate manual COM control on the selected guest produced 31 decoded RETSAR events; that validates decoding for the control process, not service activation. Missing or dropped records, an empty trace, unknown fields and a rejected method are results to retain, not a reason to infer a successful stage.
 
 A factory call only proves that the DLL's factory was called. `StartListen` returning `S_OK` only proves listener activation. A mock test process can emit the same event names; identify the service process independently. No activation trace by itself demonstrates session creation, independent display/input or replacement of another multiseat product.
 
 
-## Current validation
+## Guest experiment workflow
 
-The instrumented bridge compiled with MSVC `/W4 /WX`, and its existing in-process harness passed 125 mock checks against the DLL built on D:. Two separate argument checks confirmed rejection of a disallowed drive prefix and a UNC path before COM initialization or DLL loading. The harness now accepts explicit C: or D: paths; this prefix check is not a reparse-point or file-ownership check.
+The [activation helper](../lab/guest-provider-activation.ps1) and [boot-trace helper](../lab/guest-provider-boot-trace.ps1) run only in the small, disposable QEMU Server guest. They require explicit approval, administrator identity and either its console or explicitly enabled authenticated PowerShell management. Session0 management may operate with a Connected console only when a bounded WTS identity query proves that console has no user; a failed query is not an empty account.
 
-These checks validate the unchanged mock contracts and argument admission. No host trace session was enabled. They do not establish real service activation, successful ETL decoding or native session creation.
+1. Stage the reviewed DLL in the helper's fixed guest directory. Activation `Prepare` verifies its hash, the session baseline and the absence of the project's registry keys. It records ownership, registers only the project's CLSID/listener, starts a bounded trace and restarts only the guest service with explicit opt-in.
+2. Activation `Collect` stops the owned trace and retains the original ETL, decoded XML and service-process/module evidence. The service reporting Running does not establish protocol readiness.
+3. If a cold-boot experiment is needed, boot-trace `Arm` requires the collected activation receipt and matching registration/DLL. It creates one owned AutoLogger with a separate session GUID, the single RETSAR provider and a 16 MiB circular file. `Start=1` is the final registry change. The helper performs no reboot.
+4. After one separately authorized guest reboot, boot-trace `Collect` validates ownership and writes `Start=0` before stopping or decoding. This prevents another boot from overwriting the capture. It verifies the running trace's GUID, name, output path, mode and size limit through ControlTrace.
+5. Boot-trace `Cleanup` removes only its verified AutoLogger. Activation `Cleanup` then removes only the owned provider registration, restarts the guest service and requires module absence before removing the DLL. Receipts and trace evidence remain available.
 
-A first disposable-guest attempt registered the isolated provider and restarted the guest service. Service Control Manager reported `Running`, but LocalSessionManager subsequently reported error `0x800706BA`. The DLL was absent from the observed service process and the trace contained zero RETSAR events. The standard RDP listener's registry values remained unchanged. The ETL retained two system trace metadata records, including an undecoded partition record (`15005`); these are not provider events. Cold-boot activation and cleanup are separate pending observations. A service state alone is therefore not treated as provider readiness.
+The boot trace follows Microsoft's [AutoLogger configuration contract](https://learn.microsoft.com/en-us/windows/win32/etw/configuring-and-starting-an-autologger-session), without early-kernel tracing or additional providers. Windows added a DWORD `Status` to both the logger and its provider key; the ownership validator permits those result fields while rejecting unrelated values. Both statuses are retained separately. The live query also returned circular mode with `EVENT_TRACE_PERSIST_ON_HYBRID_SHUTDOWN` (`0x00800002`). ETW documents automatically selecting a hybrid-shutdown default; the validator accepts only circular mode alone or with exactly one of the documented stop/persist defaults, preserving the observed mode. [Logging modes](https://learn.microsoft.com/en-us/windows/win32/etw/logging-mode-constants).
+
+## Observed activation results
+
+| Experiment | Observed result |
+| --- | --- |
+| Minimal owned registration, guest service restart | Service Control Manager reported Running, but LocalSessionManager event 17 reported `0x800706BA`. The provider DLL was absent from the observed service process. Zero RETSAR events. |
+| Minimal registration, cold boot | Zero RETSAR events; service activation was not demonstrated. |
+| Own listener with `fEnableWinStation=1`, guest service restart | Zero RETSAR events; the additional listener flag did not demonstrate activation. |
+| Own enabled listener, clean power-off and new guest launch | Zero RETSAR events; service activation remains unproven. |
+
+Each of those four traces contained two system metadata records and no RETSAR event, with `EventsLost=0`. The retained metadata included the undecoded partition record `15005`. Those records are not provider calls. Successful AutoLogger startup statuses likewise prove neither DLL loading nor manager/listener initialization.
+
+A separate, explicitly invoked COM control constructed the manager and produced **31 decoded RETSAR events**, all from its own control process rather than the independently identified TermService process. This establishes that COM activation and trace decoding work in that control context. It does not convert the four service traces into successful activation evidence.
+
+The enabled-listener experiment adds only `fEnableWinStation` DWORD `1` to the project's key. Microsoft documents this prerequisite for RDP-Tcp; applying it to the custom listener is an engineering hypothesis, not a documented guarantee. No other listener defaults or security policies are copied. [Microsoft listener troubleshooting](https://learn.microsoft.com/en-us/troubleshoot/windows-server/remote/remote-desktop-cannot-connect-remote-computer).
+
+The first attempt's own AutoLogger, provider keys and DLL were removed with verification, and the standard RDP listener's registry values were unchanged. The second attempt remains registered for targeted diagnosis; its final cleanup is pending. No host provider, driver, service or physical device was changed.
+
+## Hypervisor outcome
+
+An in-guest restart under WHPX encountered virtual-processor exit 4 and QMP `guest-panic`, even though the QEMU process exited with code zero. This was **not a clean guest shutdown**. A subsequent read-only qcow2 check found no structural errors; it did not verify guest filesystem integrity. Clean guest power-off followed by a new supervised launch subsequently worked. The reset failure remains an observed limitation, not a repaired or harmless condition.
+
+## Validation scope
+
+The instrumented bridge compiled with MSVC `/W4 /WX`, and its in-process harness passed 125 mock checks. Two separate argument checks rejected a disallowed drive prefix and a UNC path before COM initialization or DLL loading. Those prefix checks do not establish path ownership or reject every reparse point.
+
+The current local helper suites passed **66 activation checks and 66 boot-trace checks**, covering pure admission/ownership logic, registry-shape consistency, native structure layout and synthetic buffers. They do not invoke WTS, ControlTrace, registry mutations or service operations. The live experiments above are separate evidence, not additional automated passes. See the [revision-specific CI results](PROGRESS.md).
+
+The next investigation is targeted diagnosis of custom-listener discovery and service initialization. Session creation, physical display assignment, keyboard/mouse isolation and Windows Home compatibility remain unvalidated.

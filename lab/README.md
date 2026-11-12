@@ -2,7 +2,7 @@
 
 This directory contains an opt-in Windows QEMU supervisor and a deployment template for testing the C++ RDS provider in a **real Windows Server guest**. The guest booted with WHPX and verified the installed RD Session Host role and running service. Microsoft's guest-local RDP reference produced concurrent logons, an exported candidate probe and a separately verified manual same-boot sign-out/cleanup cycle. The connection helper still reaches its observation timeout. **RETSAR provider readiness and physical-seat creation remain unverified.** See the [reference results](RDP-REFERENCE.md) and [verified progress](../docs/PROGRESS.md).
 
-The supervisor and answer template passed 39 inert Python tests, including simulated WHP capability responses. Two separate native checks terminated only newly created sleeping Python helper processes. The laboratory was shut down cleanly after its final reference checks.
+The supervisor and answer template passed 46 inert Python tests, including simulated WHP and restricted management configurations. Two separate native checks terminated only newly created sleeping Python helper processes. The earlier reference experiment ended with a clean guest shutdown. Subsequent provider activation work is still in progress; see the [activation evidence and cleanup state](../docs/ACTIVATION-TRACE.md).
 
 [plan.json](plan.json) is a reusable deployment template, not a record of anyone's approval or computer. Its approval and guest deployment-state fields remain unapproved and unprovisioned defaults. The separate `validation` fields record observations from a controlled laboratory, including WHPX desktop boot and the bootstrap's role/service checks; those observations do not provision or authorize another deployment. Each deployment needs approval for its resource use and applicable evaluation terms; the repository does not supply that approval, installation media or credentials.
 
@@ -81,7 +81,7 @@ All disk images, media, variable firmware files and test outputs belong in one p
 
 [autounattend.xml.template](autounattend.xml.template) was used by Windows Setup in the guest. Read-only inspection of the failed guest's setup logs identified an invalid `FirstLogonCommands/SynchronousCommand/CommandLine` in `oobeSystem`, with error `0x80220005`. The original generated command was 1,318 characters; Microsoft limits this field to 1,024 characters. The corrected template has a fixed 309-character launcher instead of an encoded-command placeholder. An inert regression test checks that the launcher stays within the limit. The fresh corrected installation reached its first desktop and started [guest-bootstrap.ps1](guest-bootstrap.ps1). [CommandLine constraint](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands-synchronouscommand-commandline).
 
-The observed serial records include schema `retsar.guest-bootstrap.v1`, phase `environment-verified`, computer `RETSARLAB`, Windows Server 2022 Standard Evaluation and `createdSeat=false`. After the WHPX desktop boot, rerunning the bootstrap inside the guest emitted `rdsh-configured` with `installed=true`, `serviceStatus=Running`, `providerRegistered=false` and `createdSeat=false`. This verifies the installed role and running service; it does not verify a successful client connection, an operational provider or session independence. The RDP reference experiment has not been executed.
+The observed serial records include schema `retsar.guest-bootstrap.v1`, phase `environment-verified`, computer `RETSARLAB`, Windows Server 2022 Standard Evaluation and `createdSeat=false`. After the WHPX desktop boot, rerunning the bootstrap inside the guest emitted `rdsh-configured` with `installed=true`, `serviceStatus=Running`, `providerRegistered=false` and `createdSeat=false`. This verifies the installed role and running service; it does not verify a successful client connection, an operational provider or session independence. A later, separate [RDP reference experiment](RDP-REFERENCE.md) observed concurrent logons and a manual same-boot cleanup cycle; that evidence is distinct from the original bootstrap marker.
 
 A private builder must substitute only the selected image index and a guest-only administrator password, preserving the fixed launcher. The generated answer XML and optional answer ISO contain that password in plaintext. Read-only attachment does not encrypt them: keep both private, restrict access, and never commit, publish or include them in logs. Guest setup may retain copies inside the disposable disk. Disabling automatic logon does not certify that every credential copy has been erased.
 
@@ -109,7 +109,7 @@ QEMU is a separate tool under GPLv2, with component-specific licenses. Its binar
 - [ ] Official media obtained and verified; Desktop Experience selected.
 - [ ] QEMU build, dependencies, firmware and guest boot configuration verified.
 - [ ] Private C: or D: laboratory paths checked, with resource headroom on C: and the laboratory volume.
-- [x] Supervisor, fixed launch configuration, simulated WHP guard and answer-template regression checks implemented; 39 inert Python tests passed.
+- [x] Supervisor, fixed launch configuration, simulated WHP guard and answer-template regression checks implemented; 46 inert Python tests passed.
 - [x] Separate read-only WHP presence probe returned a valid positive capability result.
 - [x] WHPX guest boot reached the desktop with the selected build; TCG remains the default.
 - [ ] WHPX workload behavior and the observed interrupt-vector warning assessed.
@@ -123,6 +123,16 @@ QEMU is a separate tool under GPLv2, with component-specific licenses. Its binar
 - [ ] Private answer ISO, credential handling and guest-disk-only wipe reviewed for this deployment.
 - [x] `rdsh-configured` evidence confirms the installed role and running service after WHPX boot.
 - [ ] Provider readiness verified separately from role installation and service status.
-- [ ] Real session lifecycle experiment executed and evidence reviewed.
+- [x] Microsoft RDP reference logons and manual same-boot cleanup observed; helper timeout remains.
+- [x] Explicit manual COM control and TraceLogging decoding observed in the control process.
+- [ ] RETSAR service activation, owned session lifecycle and physical display/input isolation verified.
 
-Checked items record component validations, guest desktop boot and the installed role/running service. They do not carry deployment approval. The reference client connection and real session lifecycle remain untested. GitHub compilation and unit tests do not complete either experiment.
+Checked items record only the stated observations and carry no deployment approval. The RDP reference and manual COM control do not prove a RETSAR-created session or a physical seat. Provider readiness and the second activation attempt's final cleanup remain pending.
+
+## Provider activation and boot capture
+
+The [activation helper](guest-provider-activation.ps1) registers only the project's disposable guest CLSID and listener, records its DLL hash and ownership, and can collect a bounded service-restart trace. The separate [boot-trace helper](guest-provider-boot-trace.ps1) has an Arm → separately authorized guest reboot → Collect → Cleanup sequence. It uses one owned AutoLogger and a separate 16 MiB circular file; Collect disables the next-boot setting before stopping or decoding. It never performs a reboot or service change itself. The [workflow and observed results](../docs/ACTIVATION-TRACE.md) explain the guest gates, loss/status fields and required cleanup order.
+
+Four real service captures contained zero RETSAR events. The first restart produced LocalSessionManager error `0x800706BA` while TermService reported Running. A separate manual COM control emitted 31 decoded events from its own process; this validates that control, not service startup. The first experiment's cleanup was verified; the second remains registered for targeted diagnosis and pending cleanup.
+
+An in-guest WHPX restart encountered virtual-processor exit 4 and QMP `guest-panic` despite process exit zero. A structural disk check found no qcow2 error but did not verify filesystem integrity. Later clean power-off and a fresh launch worked. Do not treat process exit zero alone as a clean guest shutdown or claim reset stability.

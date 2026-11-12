@@ -6,8 +6,8 @@
   "supervisor": "supervise_qemu.py",
   "validation": {
     "scope": "Observed evidence from a separately approved laboratory; not deployment approval or readiness for a new deployment.",
-    "fakeApiTestsPassed": 39,
-    "pythonTestScope": "Inert supervisor, fake Windows/WHP APIs and answer-template regression tests; no guest execution or real hypervisor query.",
+    "fakeApiTestsPassed": 46,
+    "pythonTestScope": "Inert supervisor, fake Windows/WHP APIs, restricted management configuration and answer-template regression tests; no guest execution or real hypervisor query.",
     "whpCapabilityReadOnlyProbe": {
       "observed": true,
       "hresult": "S_OK",
@@ -16,12 +16,15 @@
       "scope": "A separate read-only query on the laboratory host; no partition creation or host configuration changes. Availability must be checked for every WHPX launch."
     },
     "whpxGuestBootObserved": true,
-    "whpxGuestBootScope": "Selected guest reached the desktop and emitted rdsh-configured; reference connection and workload behavior remain unverified.",
+    "whpxGuestBootScope": "The guest reached the desktop and role/service marker. Later Microsoft RDP reference logons were observed separately. A WHPX guest reset panicked; clean power-off and a new launch subsequently worked. Workload and physical-seat support remain unverified.",
     "stoppedGuestCheckpoint": {
       "cleanShutdownObserved": true,
       "qmpReason": "guest-shutdown",
       "processExitCode": 0,
-      "sha256VerifiedArtifacts": ["guest disk", "writable firmware"],
+      "sha256VerifiedArtifacts": [
+        "guest disk",
+        "writable firmware"
+      ],
       "scope": "Private checkpoint verified after clean TCG shutdown and before the WHPX boot; no host configuration changes."
     },
     "whpxWarning": {
@@ -47,9 +50,10 @@
       "serviceStatus": "Running",
       "providerRegistered": false,
       "rdshConfiguredMarkerObserved": true,
-      "rdpReferenceExecuted": false
+      "rdpReferenceExecuted": false,
+      "scope": "Historical bootstrap marker before the separate RDP reference and provider activation experiments; not current provider registration state."
     },
-    "guestDiskReadOnlyCheck": "No qcow2 errors found before resuming; this did not establish successful Windows setup.",
+    "guestDiskReadOnlyCheck": "Read-only qcow2 checks found no structural errors. They do not establish a clean shutdown, successful setup or guest filesystem integrity.",
     "guestSetupFailure": {
       "confirmedFromReadOnlyGuestLogs": true,
       "pass": "oobeSystem",
@@ -61,11 +65,156 @@
       "encodedCommandPlaceholderRemoved": true,
       "regressionTestPassed": true,
       "freshCorrectedInstallationVerified": true,
-      "verificationScope": "Corrected installed system reached its first desktop; a later WHPX boot emitted rdsh-configured with the role installed and service running. Reference connection remains unverified.",
-      "nextStep": "Execute and observe the separately authorized reference-session experiment; do not infer provider readiness from the role/service marker.",
+      "verificationScope": "Corrected installation reached the desktop and the role/service marker. Later RDP reference and custom-provider activation observations are recorded separately.",
+      "nextStep": "Diagnose custom-listener discovery and service initialization, retaining failed evidence and completing cleanup of owned experiment resources.",
       "constraintSource": "https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands-synchronouscommand-commandline"
     },
-    "guestSessionCreationProven": false
+    "guestSessionCreationProven": false,
+    "referenceObservation": {
+      "scope": "Microsoft's existing Server RDP path, separate from the RETSAR provider and physical-seat milestone.",
+      "concurrentConsoleAndReferenceLogonsObserved": true,
+      "sameBootRepeat": {
+        "completeSnapshots": 3,
+        "candidateStates": [
+          "absent",
+          "active",
+          "absent"
+        ],
+        "consoleActiveAtAllThreeObservations": true,
+        "consoleLogonUnchanged": true,
+        "manualSignOutObserved": true,
+        "temporaryAccountCredentialAndDirectoryAbsenceVerified": true
+      },
+      "helperRunsTimedOut": 2,
+      "normalHelperExitObserved": false,
+      "earlierCandidateProbe": {
+        "exportedReportVerified": true,
+        "accountSidMatchedReceipt": true,
+        "renderAdapter": "Microsoft Basic Render Driver",
+        "hardwareAdapterObserved": false,
+        "syntheticInputObserved": true,
+        "physicalInputIsolationProven": false,
+        "repeatedInLaterCleanupCycle": false
+      },
+      "finalReferenceGuestShutdown": {
+        "qmpReason": "guest-shutdown",
+        "processExitCode": 0,
+        "cleanShutdownObserved": true
+      }
+    },
+    "providerActivationObservation": {
+      "scope": "Disposable Server guest only; activation diagnostics remain distinct from native session creation.",
+      "serviceActivationProven": false,
+      "nativeSessionCreated": false,
+      "physicalSeatCreated": false,
+      "attempts": [
+        {
+          "configuration": "minimal owned CLSID/listener",
+          "startup": "guest service restart",
+          "retsarEvents": 0,
+          "systemMetadataRecords": 2,
+          "eventsLost": 0,
+          "serviceRunning": true,
+          "providerModuleObserved": false,
+          "localSessionManagerEvent": 17,
+          "error": "0x800706BA"
+        },
+        {
+          "configuration": "minimal owned CLSID/listener",
+          "startup": "cold guest boot",
+          "retsarEvents": 0,
+          "systemMetadataRecords": 2,
+          "eventsLost": 0
+        },
+        {
+          "configuration": "own listener with fEnableWinStation DWORD1",
+          "startup": "guest service restart",
+          "retsarEvents": 0,
+          "systemMetadataRecords": 2,
+          "eventsLost": 0
+        },
+        {
+          "configuration": "own listener with fEnableWinStation DWORD1",
+          "startup": "clean guest power-off and fresh launch",
+          "retsarEvents": 0,
+          "systemMetadataRecords": 2,
+          "eventsLost": 0
+        }
+      ],
+      "listenerFlagScope": "Inferred from Microsoft's RDP-Tcp prerequisite; not a guarantee for a custom protocol. No other listener defaults or security policies copied.",
+      "manualComControl": {
+        "managerConstructed": true,
+        "decodedProviderEvents": 31,
+        "allEventsFromExplicitControlProcess": true,
+        "eventsFromTermService": false,
+        "doesNotProveServiceActivation": true
+      },
+      "metadataRecordsAreProviderEvidence": false,
+      "undecodedPartitionMetadataEventId": 15005,
+      "autoLogger": {
+        "loggerStatus": 0,
+        "providerStatus": 0,
+        "statusDoesNotProveProviderLoad": true,
+        "observedLogFileMode": "0x00800002",
+        "acceptedModes": [
+          "0x00000002",
+          "0x00400002",
+          "0x00800002"
+        ],
+        "originalModeRetained": true
+      },
+      "firstAttemptCleanup": {
+        "ownAutoLoggerRemoved": true,
+        "ownProviderKeysRemoved": true,
+        "ownDllRemoved": true,
+        "rdpTcpRegistryUnchanged": true
+      },
+      "secondAttempt": {
+        "providerRegistered": true,
+        "finalCleanup": "pending targeted diagnosis"
+      },
+      "nextStep": "Targeted custom-listener discovery and service initialization diagnosis."
+    },
+    "whpxResetFailure": {
+      "observed": true,
+      "virtualProcessorExit": 4,
+      "qmpReason": "guest-panic",
+      "processExitCode": 0,
+      "cleanGuestShutdown": false,
+      "readOnlyQcow2StructuralCheckPassed": true,
+      "guestFilesystemIntegrityVerified": false,
+      "subsequentCleanPowerOffAndNewLaunchWorked": true,
+      "resetReliabilityVerified": false
+    },
+    "helperValidation": {
+      "localPowerShellChecks": 168,
+      "localBreakdown": {
+        "observer": 27,
+        "reference": 9,
+        "activation": 66,
+        "bootTrace": 66
+      },
+      "verifiedCi": {
+        "commit": "aa8761ad26302153b45e70d0df824d4ee32d5230",
+        "run": 43265307026,
+        "job": 131347162820,
+        "cppCliChecks": 243,
+        "pythonChecks": 46,
+        "powerShellChecks": 97,
+        "powerShellBreakdown": {
+          "observer": 27,
+          "reference": 9,
+          "activation": 61
+        },
+        "guestScriptsParsed": 4,
+        "failed": 0,
+        "skipped": 0
+      },
+      "laterHelperRevisionCi": "pending",
+      "scope": "Inert logic, layout and synthetic buffers; no WTS, ETW control, registry, service or guest operations."
+    },
+    "guestSessionCreationScope": "This flag refers to a RETSAR-created owned session; the separately observed Microsoft RDP reference does not satisfy it.",
+    "developmentStorageScope": "Current source, builds and heavy laboratory assets are on D:. No concrete private host paths are published."
   },
   "purpose": "Validate the C++ RDS provider against a real Windows Server guest.",
   "doesNotProve": [
@@ -93,8 +242,15 @@
     "rdshConfigured": false,
     "providerReady": false,
     "configurationMarker": "rdsh-configured",
-    "configurationMarkerChecks": ["RDS-RD-Server installed", "TermService running"],
-    "configurationMarkerDoesNotProve": ["provider registration", "session creation", "isolation"],
+    "configurationMarkerChecks": [
+      "RDS-RD-Server installed",
+      "TermService running"
+    ],
+    "configurationMarkerDoesNotProve": [
+      "provider registration",
+      "session creation",
+      "isolation"
+    ],
     "evaluationDays": 180,
     "activationRequiredWithinDays": 10,
     "rdsInitialLicensingGraceDays": 120,
@@ -104,7 +260,10 @@
     "memoryMiB": 4096,
     "virtualCpuCount": 2,
     "accelerator": "tcg",
-    "allowedAccelerators": ["tcg", "whpx"],
+    "allowedAccelerators": [
+      "tcg",
+      "whpx"
+    ],
     "acceleratorFallbackAllowed": false,
     "hardwareAccelerationAssumed": false,
     "whpxRequiresExplicitOptIn": true,
@@ -124,7 +283,10 @@
       "allocation": "sparse",
       "preallocation": "off",
       "hostVolume": "D",
-      "allowedHostVolumes": ["C", "D"],
+      "allowedHostVolumes": [
+        "C",
+        "D"
+      ],
       "hostFreeSpaceFloorGiB": 25,
       "guestWriteThrottleMiBPerSecond": 16,
       "growthGuard": {
@@ -133,7 +295,10 @@
         "componentChecksPassed": true,
         "vmGrowthUnderLoadVerified": false,
         "stopWhenFreeGiBAtOrBelow": 26,
-        "monitoredVolumes": ["C", "selected laboratory volume"],
+        "monitoredVolumes": [
+          "C",
+          "selected laboratory volume"
+        ],
         "deduplicateMonitoredVolumes": true,
         "pollIntervalMs": 200,
         "heartbeatTimeoutMs": 2000,
@@ -158,7 +323,10 @@
     "chipset": "q35",
     "cpuModel": "max",
     "cpuModelScope": "TCG only; the WHPX branch omits -cpu for the verified QEMU build.",
-    "whpxArguments": ["-accel", "whpx"],
+    "whpxArguments": [
+      "-accel",
+      "whpx"
+    ],
     "whpxIrqchipOverride": false,
     "whpxCompatibilitySource": "https://github.com/qemu/qemu/blob/54e84cdc7a/docs/system/whpx.rst",
     "firmware": "UEFI; compatible firmware files must be verified before provisioning",
@@ -171,8 +339,15 @@
   },
   "access": {
     "localDisplayWindow": false,
-    "vnc": { "bindAddress": "127.0.0.1", "tcpPort": 5905 },
-    "rdp": { "bindAddress": "127.0.0.1", "hostTcpPort": 13389, "guestTcpPort": 3389 },
+    "vnc": {
+      "bindAddress": "127.0.0.1",
+      "tcpPort": 5905
+    },
+    "rdp": {
+      "bindAddress": "127.0.0.1",
+      "hostTcpPort": 13389,
+      "guestTcpPort": 3389
+    },
     "networkBackend": "user-mode",
     "restrictGuestNetworking": true,
     "outboundInternet": false,
@@ -193,7 +368,7 @@
     "bootstrap": "guest-bootstrap.ps1",
     "reviewed": true,
     "executedInGuest": true,
-    "executionEvidenceScope": "Corrected setup reached the first desktop; bootstrap after WHPX boot emitted rdsh-configured with installed=true and serviceStatus=Running, while providerRegistered and createdSeat remain false.",
+    "executionEvidenceScope": "Historical setup/bootstrap observation: corrected desktop and role/service marker, with providerRegistered=false and createdSeat=false at that stage. Later reference and provider experiments are recorded separately under validation.",
     "optionalAnswerIsoReadOnly": true,
     "generatedAnswerMediaContainsPlaintextCredentials": true,
     "generatedAnswerMediaMustRemainPrivate": true,
@@ -201,7 +376,11 @@
     "templateWipesGuestDiskZero": true,
     "wipeScopeDependsOnFixedDisposableQcow2Attachments": true,
     "bootstrapGatesProtectEarlierSetupWipe": false,
-    "bootstrapRequiredEnvironment": ["hostname RETSARLAB", "manufacturer QEMU", "Windows Server"],
+    "bootstrapRequiredEnvironment": [
+      "hostname RETSARLAB",
+      "manufacturer QEMU",
+      "Windows Server"
+    ],
     "bootstrapRegistersProvider": false,
     "bootstrapCreatesSeat": false
   },
@@ -232,7 +411,10 @@
       "logs": "logs",
       "guestSerialLog": "logs/guest-serial.log"
     },
-    "allowedLaboratoryRootVolumes": ["C", "D"],
+    "allowedLaboratoryRootVolumes": [
+      "C",
+      "D"
+    ],
     "rejectOtherVolumesBeforeFilesystemAccess": true,
     "rejectReparsePoints": true,
     "coreJournalPolicyRemainsCOnly": true,

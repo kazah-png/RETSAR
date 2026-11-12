@@ -4,9 +4,9 @@ Progress is organized by capability and evidence. A compiled component, simulate
 
 ## SDK bridge and laboratory supervision checkpoint
 
-The latest local C++/CLI run passed **242 checks**, including **125 mock RDS checks**. The supervisor and answer template separately passed **39 inert Python tests**. These results include the corrected optional settings-interface contract, the installed-guest launch mode, a first-logon command-length regression check, restricted C:/D: paths, checks of both relevant volumes and the explicit WHPX option with simulated capability responses.
+The last complete local C++/CLI baseline passed **242 checks**, including **125 mock RDS checks**. The supervisor suite now has **46 separate inert Python tests**, and local guest-helper checks total **168**: 27 observer, nine reference-marker, 66 activation and 66 boot-trace checks. These helpers exercise pure logic and synthetic buffers; they do not run guest operations.
 
-The current [Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43258835543/job/131324303562) passed at commit [`a1359e0`](https://github.com/kazah-png/RETSAR/commit/a1359e0a56fb57f485c95134c1b684f1db41b98a): **243 C++/CLI checks, 39 separate Python tests and 36 separate pure PowerShell checks**, with no failed or skipped checks. The PowerShell checks comprise 27 observer classification/diagnostic/timestamp checks and nine reference-marker checks, also verified locally. CI additionally parsed three guest PowerShell scripts without executing them. It covers the core, probe, optional [RDS SDK bridge](RDS-BRIDGE.md), [laboratory supervisor](../lab/README.md) and inert guest-helper regressions at that revision. The table below separates the evidence by scope.
+The latest verified [Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43265307026/job/131347162820) passed at commit [`aa8761a`](https://github.com/kazah-png/RETSAR/commit/aa8761ad26302153b45e70d0df824d4ee32d5230): **243 C++/CLI checks, 46 separate Python tests and 97 separate inert PowerShell checks**, with no failed or skipped checks. Its PowerShell scope was 27 observer, nine reference-marker and 61 activation checks; it also parsed four guest scripts without executing them. The later listener-flag and boot-trace changes have local checks but their next CI run is pending. The table below keeps those revision boundaries explicit.
 
 The bridge tests load the explicit DLL and fake callback objects; they do not register COM classes or call an RDS service. The Python suite uses fake Windows API calls and inert configuration/template checks. Separate local native checks verified termination and kill-on-job-close with two newly created sleeping Python helpers. Those native process checks were not part of CI and did not create a VM or Windows session.
 
@@ -26,7 +26,7 @@ The laboratory supervisor now permits a private root on C: or D: while monitorin
 
 ## Current evidence · 0.2.0-engine-preview
 
-| Check | Latest local result | Current public CI result (`a1359e0`) |
+| Check | Latest local result | Verified public CI result (`aa8761a`) |
 | --- | --- | --- |
 | Model, validation and capabilities | 25 passed | 25 passed |
 | Lifecycle, journal and recovery | 57 passed | 58 passed |
@@ -34,11 +34,14 @@ The laboratory supervisor now permits a private root on C: or D: while monitorin
 | Laboratory probe argument/session-gate tests | 29 passed | 29 passed |
 | RDS bridge mock callback contracts | 125 passed | 125 passed |
 | **C++/CLI total** | **242 passed, 0 failed** | **243 passed, 0 failed, 0 skipped** |
-| Python supervisor and answer-template tests; no guest execution | 39 passed, separate from C++/CLI total | 39 passed, 0 failed, 0 skipped; separate from C++/CLI total |
+| Python supervisor and answer-template tests; no guest execution | 46 passed, separate from C++/CLI total | 46 passed, 0 failed, 0 skipped; separate from C++/CLI total |
 | Pure observer PowerShell checks; no WTS calls | 27 passed, separate from C++/CLI and Python totals | 27 passed, 0 failed; separate from other totals |
 | Pure reference-marker PowerShell checks; no account operations | 9 passed, separate from other totals | 9 passed, 0 failed; separate from other totals |
+| Inert activation PowerShell checks | 66 passed | 61 passed at the linked revision |
+| Inert boot-trace PowerShell checks | 66 passed | Not included at the linked revision |
+| **PowerShell helper total** | **168 passed, separate from other totals** | **97 passed at the linked revision** |
 | Native supervisor checks with owned helper processes | 2 passed, separate from test-suite totals | Not run |
-| Guest PowerShell script syntax; no script execution | Passed | 3 scripts parsed; separate from test-suite totals |
+| Guest PowerShell script syntax; no script execution | Edited helpers parsed by their inert suites | 4 scripts parsed; separate from test-suite totals |
 | Independent JSON parsing by PowerShell | Passed, additional to the total | Passed, additional to the total |
 | Adversarial junction branch | **1 not exercised** | Exercised and included among lifecycle passes |
 | x64 C++17 build with `/W4 /WX` | Passed | Passed |
@@ -89,6 +92,18 @@ The earlier experiment lost its controller before final WTS enumeration and clea
 
 Neither display names, session IDs nor a standalone token report prove ownership by the RETSAR provider. This reference uses Microsoft's existing Server RDP stack and does not satisfy the native provider or physical multiseat milestone.
 
+## Milestone: real provider activation
+
+**Status: service activation remains unproven; manual COM activation and trace decoding were observed in a separate control process.**
+
+The [activation trace experiments](ACTIVATION-TRACE.md) produced four service captures: minimal registration with a service restart and a cold boot, followed by an owned listener with `fEnableWinStation=1` under the same two startup routes. Each retained two system metadata records, zero RETSAR events and `EventsLost=0`. The first service restart also produced LocalSessionManager event 17, `0x800706BA`, despite TermService reporting Running. Successful AutoLogger startup statuses were not treated as provider readiness.
+
+A separate explicit COM control constructed the manager and emitted 31 decoded RETSAR events, all from the control process rather than TermService. The first experiment's owned AutoLogger, provider keys and DLL were removed with the standard RDP listener unchanged. The second experiment remains registered for targeted diagnosis and still needs final cleanup. The listener flag is an inference from Microsoft's RDP-Tcp troubleshooting guidance; its presence did not produce observed custom-provider activation.
+
+A guest restart under WHPX reached virtual-processor exit 4 and QMP `guest-panic`, with process exit code zero. That exit code was not a clean-shutdown result. The stopped disk passed a read-only qcow2 structural check, which does not establish filesystem integrity. Clean guest power-off and a fresh supervised launch subsequently worked; reset reliability remains unresolved.
+
+Current development, builds and heavy laboratory assets are on D:. Host multiseat software, host display/input assignments and unrelated volumes remain untouched. These observations do not advance physical-seat P0 to complete.
+
 ## Milestone: native session research
 
 **Status: candidate interfaces identified; no operational provider demonstrated.**
@@ -103,7 +118,7 @@ The [native backend investigation](NATIVE-BACKEND.md) identifies a public RDS pr
 
 **Status: public Windows CI passed at the linked revision.**
 
-[Windows CI](../.github/workflows/windows.yml) copies the required sources, tests, laboratory files and build script to a verified temporary directory on C: to preserve the engine's file policy. It compiles the engine, laboratory instrument and optional SDK bridge, then runs pure tests, mock callback checks, CLI checks, the Python fake-API suite and inert PowerShell helper checks. The PowerShell checks parse source, compile extracted observer declarations and inspect pure values without executing guest scripts or invoking WTS, account or credential operations. CI invokes only the probe's help and does not launch a VM or run the native helper-process smoke test.
+[Windows CI](../.github/workflows/windows.yml) copies the required sources, tests, laboratory files and build script to a verified temporary directory on C: to preserve the engine's file policy. It compiles the engine, laboratory instrument and optional SDK bridge, then runs pure tests, mock callback checks, CLI checks, the Python fake-API suite and inert PowerShell helper checks. The PowerShell checks parse source, compile extracted native declarations and inspect pure values or synthetic buffers without executing guest scripts or invoking WTS, ETW control, account, registry or service operations. CI invokes only the probe's help and does not launch a VM or run the native helper-process smoke test.
 
 The SDK selection checks for the required UCRT headers, x64 libraries and manifest tool before choosing an installed version. A previous CI build exposed an incomplete SDK directory; the passing run validates the corrected selection in that environment.
 
@@ -118,6 +133,8 @@ From an ordinary directory on C:, with the [build prerequisites](../README.md#ge
 python -B -m unittest discover -s lab -p test_supervise_qemu.py -v
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\guest_session_observer_tests.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\guest_rdp_reference_tests.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\guest_provider_activation_tests.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\guest_provider_boot_trace_tests.ps1
 ```
 
 The suite prints individual outcomes and identifies unexercised branches. Temporary artifacts are written under `build/` and CLI reports under `reports/`; those directories are not published source. The CLI validation report includes the hash of the checked local executable.

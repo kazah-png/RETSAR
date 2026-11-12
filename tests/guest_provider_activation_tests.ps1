@@ -6,11 +6,11 @@ $source = Join-Path (Split-Path -Parent $PSScriptRoot) 'lab\guest-provider-activ
 $tokens=$null; $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($source,[ref]$tokens,[ref]$errors)
 if ($errors.Count) { throw ($errors.Message -join '; ') }
-$names=@('Assert-ActivationLeaf','Assert-ActivationReceipt','Assert-OnlyGuestConsole','Assert-RegistryShape','Assert-CallerSession')
+$names=@('Assert-ActivationLeaf','Assert-ActivationReceipt','Assert-OnlyGuestConsole','Assert-RegistryShape','Assert-CallerSession','Expected-ListenerShape')
 foreach($name in $names) {
     $functions=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
     if($functions.Count -ne 1) { throw ('Missing or duplicate pure validator: '+$name) }
-    # Only the five reviewed function declarations are evaluated.
+    # Only the six reviewed function declarations are evaluated.
     . ([scriptblock]::Create($functions[0].Extent.Text))
 }
 $script:checks=0
@@ -149,4 +149,50 @@ $wrong=[ordered]@{values=@([ordered]@{name='owner';kind='String';data='run'},
 Reject 'Unexpected registry value' { Assert-RegistryShape $wrong $expected }
 $wrong=[ordered]@{values=$expected.values;children=@([ordered]@{name='unexpected';shape=$expected})}
 Reject 'Unexpected registry subkey' { Assert-RegistryShape $wrong $expected }
+# Registration, cleanup and boot verification must agree on the one opt-in
+# listener flag; all of these checks use literals or in-memory key shapes.
+$script:receipt=$valid
+$classId=$valid.classId
+$listener=Expected-ListenerShape
+if($listener.values.Count -ne 3 -or $listener.values[0].name -cne 'fEnableWinStation' -or
+    $listener.values[0].kind -cne 'DWord' -or $listener.values[0].data -ne 1) {throw 'Listener ownership shape must include exactly the enabled DWORD.'}
+Pass 'Owned listener shape includes fEnableWinStation DWORD1'
+$writes=@($ast.FindAll({param($node)
+    $node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+    $node.Member -is [Management.Automation.Language.StringConstantExpressionAst] -and
+    $node.Member.Value -ceq 'SetValue' -and $node.Arguments.Count -eq 3 -and
+    $node.Arguments[0] -is [Management.Automation.Language.StringConstantExpressionAst] -and
+    $node.Arguments[0].Value -ceq 'fEnableWinStation'
+},$true))
+if($writes.Count -ne 1 -or $writes[0].Arguments[1].Extent.Text -cne '1' -or
+    $writes[0].Arguments[2].Extent.Text -cne '[Microsoft.Win32.RegistryValueKind]::DWord') {throw 'Listener enable write must be one literal DWORD1.'}
+Pass 'Only one explicit enabled-listener write'
+$bootTokens=$null;$bootErrors=$null
+$bootAst=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path (Split-Path -Parent $PSScriptRoot) 'lab\guest-provider-boot-trace.ps1'),[ref]$bootTokens,[ref]$bootErrors)
+if($bootErrors.Count) {throw 'Boot helper syntax failed.'}
+$registration=@($bootAst.FindAll({param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Assert-ActivationRegistration'
+},$true))
+if($registration.Count -ne 1) {throw 'Expected one boot registration validator.'}
+. ([scriptblock]::Create($registration[0].Extent.Text))
+$activation=$valid
+$dll='C:\RETSAR-Lab\provider-activation\RETSAR-RdsBridge.dll'
+$mockClass=[ordered]@{values=@([ordered]@{name='RETSARRunId';kind='String';data=$valid.runId});
+    children=@([ordered]@{name='InprocServer32';shape=[ordered]@{values=@(
+        [ordered]@{name='';kind='String';data=$dll},
+        [ordered]@{name='ThreadingModel';kind='String';data='Free'});children=@()}})}
+$script:mockListener=$listener
+function Get-BootKeyShape([string]$Path) {
+    if($Path -ceq ('SOFTWARE\Classes\CLSID\'+$classId)) {return $mockClass}
+    if($Path -ceq 'SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RETSAR-Lab') {return $script:mockListener}
+    throw 'Unexpected mock registry path.'
+}
+Assert-ActivationRegistration
+Pass 'Boot helper accepts the same enabled-listener ownership shape'
+$script:mockListener=$listener|ConvertTo-Json -Depth 10|ConvertFrom-Json
+$script:mockListener.values[0].data=0
+Reject 'Boot helper rejects disabled listener' {Assert-ActivationRegistration}
+$script:mockListener.values=@($script:mockListener.values|Where-Object {$_.name -cne 'fEnableWinStation'})
+Reject 'Boot helper rejects missing listener enable flag' {Assert-ActivationRegistration}
 Write-Output ('ACTIVATION TOTAL '+$script:checks+' passed, 0 failed; pure validators and synthetic buffers only, no WTS calls, guest, registry, service or ETW operations.')
