@@ -6,7 +6,7 @@ Progress is organized by capability and evidence. A compiled component, simulate
 
 The latest local C++/CLI run passed **242 checks**, including **125 mock RDS checks**. The supervisor and answer template separately passed **39 inert Python tests**. These results include the corrected optional settings-interface contract, the installed-guest launch mode, a first-logon command-length regression check, restricted C:/D: paths, checks of both relevant volumes and the explicit WHPX option with simulated capability responses.
 
-The current [Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43238991828/job/131253989959) passed at commit [`9735d585feb1c02bd0eefa66b0d36109543ea16c`](https://github.com/kazah-png/RETSAR/commit/9735d585feb1c02bd0eefa66b0d36109543ea16c): **243 C++/CLI checks and 28 separate Python tests**, with no failed or skipped checks. It covers the core, probe, optional [RDS SDK bridge](RDS-BRIDGE.md) and [laboratory supervisor](../lab/README.md) at that revision. The expanded 39-test suite has passed locally and is not included in that CI result. The table below separates the evidence by scope.
+The current [Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43258835543/job/131324303562) passed at commit [`a1359e0`](https://github.com/kazah-png/RETSAR/commit/a1359e0a56fb57f485c95134c1b684f1db41b98a): **243 C++/CLI checks, 39 separate Python tests and 36 separate pure PowerShell checks**, with no failed or skipped checks. The PowerShell checks comprise 27 observer classification/diagnostic/timestamp checks and nine reference-marker checks, also verified locally. CI additionally parsed three guest PowerShell scripts without executing them. It covers the core, probe, optional [RDS SDK bridge](RDS-BRIDGE.md), [laboratory supervisor](../lab/README.md) and inert guest-helper regressions at that revision. The table below separates the evidence by scope.
 
 The bridge tests load the explicit DLL and fake callback objects; they do not register COM classes or call an RDS service. The Python suite uses fake Windows API calls and inert configuration/template checks. Separate local native checks verified termination and kill-on-job-close with two newly created sleeping Python helpers. Those native process checks were not part of CI and did not create a VM or Windows session.
 
@@ -20,13 +20,13 @@ The qcow2 structural check passed, but that did not establish successful Windows
 
 The TCG guest was then shut down cleanly: QMP reported `guest-shutdown` and the process exited with code zero. A stopped-guest checkpoint of the disk and writable firmware was verified with SHA-256. A separate read-only host capability query returned `S_OK`, four bytes and `HypervisorPresent=TRUE`; no Windows feature or service was changed. The explicit WHPX launch reached the guest desktop under the same resource budget. QEMU emitted `Ignoring request for interrupt vector 0`; that warning did not prevent the observed desktop and bootstrap result, but its wider impact has not been established.
 
-Rerunning the bootstrap inside that guest emitted `environment-verified` and then `rdsh-configured`, with `installed=true`, `serviceStatus=Running`, `providerRegistered=false` and `createdSeat=false`. This verifies the role and running service, not a successful client connection or an operational RETSAR provider. The guest-local RDP reference, provider readiness and real session creation remain unverified. The native executor stays blocked and P0 remains open. These guest observations are separate from the automated test totals and do not grant approval for another deployment.
+Rerunning the bootstrap inside that guest emitted `environment-verified` and then `rdsh-configured`, with `installed=true`, `serviceStatus=Running`, `providerRegistered=false` and `createdSeat=false`. This verified the role and running service. The subsequent guest-local RDP reference has now produced a distinct active user logon and a running probe inside it, as detailed below; it is not an operational RETSAR provider. The native executor stays blocked and physical-seat P0 remains open. These guest observations are separate from the automated test totals and do not grant approval for another deployment.
 
 The laboratory supervisor now permits a private root on C: or D: while monitoring free space on both C: and the selected laboratory volume. Other volumes are rejected before filesystem access. This change applies only to the disposable laboratory; the core's C-only journal and CLI output policy remains unchanged.
 
 ## Current evidence · 0.2.0-engine-preview
 
-| Check | Latest local result | Current public CI result (`9735d58`) |
+| Check | Latest local result | Current public CI result (`a1359e0`) |
 | --- | --- | --- |
 | Model, validation and capabilities | 25 passed | 25 passed |
 | Lifecycle, journal and recovery | 57 passed | 58 passed |
@@ -34,13 +34,15 @@ The laboratory supervisor now permits a private root on C: or D: while monitorin
 | Laboratory probe argument/session-gate tests | 29 passed | 29 passed |
 | RDS bridge mock callback contracts | 125 passed | 125 passed |
 | **C++/CLI total** | **242 passed, 0 failed** | **243 passed, 0 failed, 0 skipped** |
-| Python supervisor and answer-template tests; no guest execution | 39 passed, separate from C++/CLI total | 28 passed, 0 failed, 0 skipped at the linked revision; separate from C++/CLI total |
+| Python supervisor and answer-template tests; no guest execution | 39 passed, separate from C++/CLI total | 39 passed, 0 failed, 0 skipped; separate from C++/CLI total |
+| Pure observer PowerShell checks; no WTS calls | 27 passed, separate from C++/CLI and Python totals | 27 passed, 0 failed; separate from other totals |
+| Pure reference-marker PowerShell checks; no account operations | 9 passed, separate from other totals | 9 passed, 0 failed; separate from other totals |
 | Native supervisor checks with owned helper processes | 2 passed, separate from test-suite totals | Not run |
 | Guest PowerShell script syntax; no script execution | Passed | 3 scripts parsed; separate from test-suite totals |
 | Independent JSON parsing by PowerShell | Passed, additional to the total | Passed, additional to the total |
 | Adversarial junction branch | **1 not exercised** | Exercised and included among lifecycle passes |
 | x64 C++17 build with `/W4 /WX` | Passed | Passed |
-| Probe interactive mode | **Not run** | **Not run** |
+| Probe interactive mode | Executed inside the Server guest's RDP candidate; exported JSON and account SID comparison verified | **Not run** |
 
 The local adversarial test tried to convert its own temporary directory on C: into a junction targeting another temporary directory on C:. Windows rejected the mutation with error **5 — access denied**, so the redirected-child branch was not exercised locally and is not counted as passed. CI allowed and verified that branch, accounting for the one-check difference between the C++/CLI totals.
 
@@ -65,23 +67,27 @@ The public executable is linked with the transactional core. The simulated provi
 
 ## Milestone: laboratory observation instrument
 
-**Status: instrument compiled; pure tests and help verified; interactive execution pending.**
+**Status: instrument compiled and executed in the Server RDP candidate; exported report and account SID comparison verified.**
 
-`RETSAR-seat-probe` is separate from the main executable. Its 29 pure checks cover arguments and the gate comparing the declared candidate and reference sessions. The build invokes only its help; it has not opened the probe window or exercised D3D11 creation in a laboratory session.
+`RETSAR-seat-probe` is separate from the main executable. Its 29 pure checks cover arguments and the gate comparing the declared candidate and reference sessions. The build still invokes only its help. In a separate live guest experiment, interactive mode ran inside the newly observed candidate with the original console declared as reference.
 
 The instrument declares `createdSession=false` and `independenceNotProven=true`. It requires manual window activation and counts messages without treating their presence as proof of origin. Its design and limits are documented in [NATIVE-BACKEND.md](NATIVE-BACKEND.md#c-laboratory-instrument).
 
-Compiling the probe does not validate its interactive window, graphics device, event routing or real-session report.
+The exported probe JSON confirmed `WinSta0` / `Default` and complete own-process SID, authentication LUID, PID and creation-time fields, with zero identity-query errors. Its user SID matched the separately retained reference-account receipt, and its session matched the candidate in the connected WTS snapshot. The observed adapter was Microsoft Basic Render Driver with `hardwareAdapterObserved=false`. Input counters showed three mouse movements, one button event and one key-down event delivered through the synthetic QMP/VNC/RDP path. The probe terminated when its own window closed. This validates the report and observed delivery to the probe, not physical routing, exclusive input, provider ownership or GPU presentation.
 
 ## Milestone: Server reference experiment
 
-**Status: WHPX guest desktop, installed RD Session Host role and running service verified; real reference connection not yet executed.**
+**Status: concurrent reference-account and console logons verified; an exported probe report passed inspection, and a separate manual same-boot sign-out/cleanup cycle passed independent checks. The connection helper still reaches its observation timeout.**
 
-The [read-only session observer](../lab/SESSION-OBSERVATION.md) records bounded WTS snapshots with user, state and logon/connection times. Its PowerShell syntax, extracted C# compilation, native layouts and synthetic timestamp conversions were checked without invoking WTS on the host. These checks are separate from the suite totals above.
+The latest [guest-local RDP reference](../lab/RDP-REFERENCE.md) repeat produced complete baseline, connected and cleaned WTS snapshots from one boot. They show the fresh reference account absent, active and absent respectively, with a new account SID. The original console was active at all three observations with unchanged logon time. Sign-out was requested inside the candidate desktop. Guarded cleanup reported `owned-account-and-reference-files-removed`; separate checks confirmed account, credential and reference-directory absence. The probe was not rerun in this cycle: its independently inspected report belongs to the earlier experiment described above. The laboratory then shut down normally, with QMP `guest-shutdown` and supervisor exit code zero.
 
-The [guest-local RDP reference](../lab/RDP-REFERENCE.md) prepares a dedicated temporary account and launches Microsoft's client inside the guest console. It preserves Windows authentication and licensing decisions. It does not close sessions by numeric ID or claim a new session when a client window opens. Guest execution and cleanup behavior remain unverified.
+Both connection-helper runs reported `Observation window expired`, with no normal `client-exited-observation-required` phase. The manually observed lifecycle and receipt-based cleanup succeeded independently of that timeout. They do not establish normal helper completion, continuous input isolation between snapshots or an operational RETSAR provider. The connection preserved Windows authentication and licensing decisions, and its public certificate fingerprint was compared with the guest listener's reference.
 
-The C++ probe now records its own user SID, authentication LUID, PID and process creation time after the existing session gate. Compilation and help passed; interactive identity collection still requires guest evidence. The reference experiment can validate observation and recovery, not physical multiseat on the host.
+Live execution exposed two diagnostic errors. The observer queried two `WTSListen` rows for logon identity; it now preserves them as listeners and retains every applicable-session error, covered by 27 inert checks. Account creation initially failed because its description was 53 characters rather than at most 48; both creation and cleanup now derive the same 43-character marker with the full GUID, covered by nine AST/string checks.
+
+The earlier experiment lost its controller before final WTS enumeration and cleanup. QEMU was no longer running; its stopped disk passed a read-only qcow2 structural check, which does not prove a clean shutdown or filesystem integrity. Receipt-based recovery after a guest restart verified account, credential, directory and candidate-session absence. That recovery is evidence from another boot, distinct from the later same-boot repeat.
+
+Neither display names, session IDs nor a standalone token report prove ownership by the RETSAR provider. This reference uses Microsoft's existing Server RDP stack and does not satisfy the native provider or physical multiseat milestone.
 
 ## Milestone: native session research
 
@@ -97,7 +103,7 @@ The [native backend investigation](NATIVE-BACKEND.md) identifies a public RDS pr
 
 **Status: public Windows CI passed at the linked revision.**
 
-[Windows CI](../.github/workflows/windows.yml) copies the required sources, tests, laboratory files and build script to a verified temporary directory on C: to preserve the engine's file policy. It compiles the engine, laboratory instrument and optional SDK bridge, then runs pure tests, mock callback checks, CLI checks and the Python fake-API suite. It invokes only the probe's help and does not launch a VM, execute the guest bootstrap or run the native helper-process smoke test.
+[Windows CI](../.github/workflows/windows.yml) copies the required sources, tests, laboratory files and build script to a verified temporary directory on C: to preserve the engine's file policy. It compiles the engine, laboratory instrument and optional SDK bridge, then runs pure tests, mock callback checks, CLI checks, the Python fake-API suite and inert PowerShell helper checks. The PowerShell checks parse source, compile extracted observer declarations and inspect pure values without executing guest scripts or invoking WTS, account or credential operations. CI invokes only the probe's help and does not launch a VM or run the native helper-process smoke test.
 
 The SDK selection checks for the required UCRT headers, x64 libraries and manifest tool before choosing an installed version. A previous CI build exposed an incomplete SDK directory; the passing run validates the corrected selection in that environment.
 
@@ -110,6 +116,8 @@ From an ordinary directory on C:, with the [build prerequisites](../README.md#ge
 ```powershell
 .\build.ps1 -Test -Lab -RdsLab
 python -B -m unittest discover -s lab -p test_supervise_qemu.py -v
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\guest_session_observer_tests.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\guest_rdp_reference_tests.ps1
 ```
 
 The suite prints individual outcomes and identifies unexercised branches. Temporary artifacts are written under `build/` and CLI reports under `reports/`; those directories are not published source. The CLI validation report includes the hash of the checked local executable.

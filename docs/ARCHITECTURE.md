@@ -71,7 +71,7 @@ The local adversarial junction test could not exercise redirection because Windo
 
 `RETSAR-seat-probe` is a separate executable. Its interactive path requires explicit candidate and reference session IDs and verifies that its own process already belongs to the candidate before observing graphics or opening a window. It does not create or select a new session.
 
-The ordinary build and test suite run only its help and pure tests. Interactive behavior, graphics creation and independent input remain unverified in a real laboratory session. Its [full contract](NATIVE-BACKEND.md#c-laboratory-instrument) explains what each observation can and cannot establish.
+The ordinary build and test suite run only its help and pure tests. A separate live Server reference experiment verified the probe's own window, process/token identity and D3D11 device creation using Microsoft Basic Render Driver. Synthetic input reached that window; independent physical input and hardware GPU presentation remain unverified. Its [full contract](NATIVE-BACKEND.md#c-laboratory-instrument) explains the limits and the distinction from a native-seat provider.
 
 ## Pending integration
 
