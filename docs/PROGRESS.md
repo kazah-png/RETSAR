@@ -4,9 +4,9 @@ Progress is organized by capability and evidence. A compiled component, simulate
 
 ## SDK bridge and laboratory supervision checkpoint
 
-The last complete local C++/CLI baseline passed **242 checks**, including **125 mock RDS checks**. The supervisor suite now has **46 separate inert Python tests**, and local guest-helper checks total **168**: 27 observer, nine reference-marker, 66 activation and 66 boot-trace checks. These helpers exercise pure logic and synthetic buffers; they do not run guest operations.
+The last complete local C++/CLI baseline passed **242 checks**, including **125 mock RDS checks**. The supervisor suite now has **46 separate inert Python tests**, and local guest-helper checks total **175**: 27 observer, nine reference-marker, 73 activation and 66 boot-trace checks. These helpers exercise pure logic and synthetic buffers; they do not run guest operations.
 
-The latest verified [Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43265307026/job/131347162820) passed at commit [`aa8761a`](https://github.com/kazah-png/RETSAR/commit/aa8761ad26302153b45e70d0df824d4ee32d5230): **243 C++/CLI checks, 46 separate Python tests and 97 separate inert PowerShell checks**, with no failed or skipped checks. Its PowerShell scope was 27 observer, nine reference-marker and 61 activation checks; it also parsed four guest scripts without executing them. The later listener-flag and boot-trace changes have local checks but their next CI run is pending. The table below keeps those revision boundaries explicit.
+The latest verified [Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43271355596/job/131368415784) passed at commit [`f2063b8`](https://github.com/kazah-png/RETSAR/commit/f2063b8): **243 C++/CLI checks, 46 separate Python tests and 168 separate inert PowerShell checks**, with no failed or skipped checks. Its PowerShell scope was 27 observer, nine reference-marker, 66 activation and 66 boot-trace checks; it also parsed five guest scripts without executing them. The DLL-permission correction adds seven later local checks; its next CI run is pending. The table below keeps local and CI scopes separate.
 
 The bridge tests load the explicit DLL and fake callback objects; they do not register COM classes or call an RDS service. The Python suite uses fake Windows API calls and inert configuration/template checks. Separate local native checks verified termination and kill-on-job-close with two newly created sleeping Python helpers. Those native process checks were not part of CI and did not create a VM or Windows session.
 
@@ -26,7 +26,7 @@ The laboratory supervisor now permits a private root on C: or D: while monitorin
 
 ## Current evidence · 0.2.0-engine-preview
 
-| Check | Latest local result | Verified public CI result (`aa8761a`) |
+| Check | Latest local result | Verified public CI result (`f2063b8`) |
 | --- | --- | --- |
 | Model, validation and capabilities | 25 passed | 25 passed |
 | Lifecycle, journal and recovery | 57 passed | 58 passed |
@@ -37,11 +37,11 @@ The laboratory supervisor now permits a private root on C: or D: while monitorin
 | Python supervisor and answer-template tests; no guest execution | 46 passed, separate from C++/CLI total | 46 passed, 0 failed, 0 skipped; separate from C++/CLI total |
 | Pure observer PowerShell checks; no WTS calls | 27 passed, separate from C++/CLI and Python totals | 27 passed, 0 failed; separate from other totals |
 | Pure reference-marker PowerShell checks; no account operations | 9 passed, separate from other totals | 9 passed, 0 failed; separate from other totals |
-| Inert activation PowerShell checks | 66 passed | 61 passed at the linked revision |
-| Inert boot-trace PowerShell checks | 66 passed | Not included at the linked revision |
-| **PowerShell helper total** | **168 passed, separate from other totals** | **97 passed at the linked revision** |
+| Inert activation PowerShell checks | 73 passed | 66 passed, 0 failed |
+| Inert boot-trace PowerShell checks | 66 passed | 66 passed, 0 failed |
+| **PowerShell helper total** | **175 passed, separate from other totals** | **168 passed, 0 failed, 0 skipped; separate from other totals** |
 | Native supervisor checks with owned helper processes | 2 passed, separate from test-suite totals | Not run |
-| Guest PowerShell script syntax; no script execution | Edited helpers parsed by their inert suites | 4 scripts parsed; separate from test-suite totals |
+| Guest PowerShell script syntax; no script execution | All 5 guest scripts parsed separately | 5 scripts parsed; separate from test-suite totals |
 | Independent JSON parsing by PowerShell | Passed, additional to the total | Passed, additional to the total |
 | Adversarial junction branch | **1 not exercised** | Exercised and included among lifecycle passes |
 | x64 C++17 build with `/W4 /WX` | Passed | Passed |
@@ -94,11 +94,13 @@ Neither display names, session IDs nor a standalone token report prove ownership
 
 ## Milestone: real provider activation
 
-**Status: service activation remains unproven; manual COM activation and trace decoding were observed in a separate control process.**
+**Status: TermService loaded the provider, initialized the manager and started its listener in the disposable Server guest. No client connection, licensing exchange or RETSAR-created user session has been demonstrated.**
 
-The [activation trace experiments](ACTIVATION-TRACE.md) produced four service captures: minimal registration with a service restart and a cold boot, followed by an owned listener with `fEnableWinStation=1` under the same two startup routes. Each retained two system metadata records, zero RETSAR events and `EventsLost=0`. The first service restart also produced LocalSessionManager event 17, `0x800706BA`, despite TermService reporting Running. Successful AutoLogger startup statuses were not treated as provider readiness.
+The first two [activation trace experiments](ACTIVATION-TRACE.md) produced four service captures: minimal registration with a service restart and a cold boot, followed by an owned listener with `fEnableWinStation=1` under the same two startup routes. Each retained two system metadata records, zero RETSAR events and `EventsLost=0`. The first service restart also produced LocalSessionManager event 17, `0x800706BA`, despite TermService reporting Running. Successful AutoLogger startup statuses were not treated as provider readiness.
 
-A separate explicit COM control constructed the manager and emitted 31 decoded RETSAR events, all from the control process rather than TermService. The first experiment's owned AutoLogger, provider keys and DLL were removed with the standard RDP listener unchanged. The second experiment remains registered for targeted diagnosis and still needs final cleanup. The listener flag is an inference from Microsoft's RDP-Tcp troubleshooting guidance; its presence did not produce observed custom-provider activation.
+A separate explicit COM control constructed the manager and emitted 31 decoded RETSAR events, all from the control process rather than TermService. Those first two experiments completed verified cleanup: owned traces were stopped, AutoLogger and provider keys and DLLs were removed, and the standard RDP listener remained unchanged. Receipts and captured evidence were retained for targeted diagnosis. The listener flag is an inference from Microsoft's RDP-Tcp troubleshooting guidance; its presence alone did not produce observed custom-provider activation.
+
+The third attempt corrected the staged DLL's observed DACL, adding explicit NetworkService read/execute while retaining SYSTEM/Administrators full control. Its trace contained **21 decoded RETSAR events, all from the independently identified TermService process**, and the collector observed the loaded module. Manager initialization, listener creation and `StartListen` returned `S_OK`; WTS showed a new listener without an added interactive user. `GetSettings` returned `E_NOTIMPL` and the service continued to `StartListen`; a later `NotifyServiceStateChange` also returned `E_NOTIMPL`. The third attempt completed verified removal of its owned provider registration and DLL, with the standard RDP listener unchanged and captured evidence retained. No boot trace was armed. This is service/listener activation evidence, not a connection or seat.
 
 A guest restart under WHPX reached virtual-processor exit 4 and QMP `guest-panic`, with process exit code zero. That exit code was not a clean-shutdown result. The stopped disk passed a read-only qcow2 structural check, which does not establish filesystem integrity. Clean guest power-off and a fresh supervised launch subsequently worked; reset reliability remains unresolved.
 

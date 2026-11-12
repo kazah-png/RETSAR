@@ -1,0 +1,60 @@
+{
+  "upstreamRepository": "https://github.com/microsoft/Windows-driver-samples",
+  "upstreamCommit": "d49bb7d72f3651952b2b6e4ad28d14fe2247eb69",
+  "sourceOnly": true,
+  "files": [
+    {
+      "path": "LICENSE-MS-PL.txt",
+      "license": "MS-PL",
+      "upstreamPath": "LICENSE",
+      "upstreamUrl": "https://raw.githubusercontent.com/microsoft/Windows-driver-samples/d49bb7d72f3651952b2b6e4ad28d14fe2247eb69/LICENSE",
+      "upstreamSha256": "07639618c7b94ab9953cc61715f6325877e1854dca611ed9b1bd54497cf5e93a",
+      "sha256": "07639618c7b94ab9953cc61715f6325877e1854dca611ed9b1bd54497cf5e93a",
+      "bytes": 2665
+    },
+    {
+      "path": "Driver.cpp",
+      "license": "MS-PL",
+      "upstreamPath": "video/IndirectDisplay/IddSampleDriver/Driver.cpp",
+      "upstreamUrl": "https://raw.githubusercontent.com/microsoft/Windows-driver-samples/d49bb7d72f3651952b2b6e4ad28d14fe2247eb69/video/IndirectDisplay/IddSampleDriver/Driver.cpp",
+      "upstreamSha256": "b6e9320291372a3f041e0bea716e15e7bc3d8df6359169e822d3eb3a281bdf3f",
+      "sha256": "512fb48f1bfb1fbef8f985106ba42021a33a696391079a53d8560e1ebd2ee4b6",
+      "bytes": 33525
+    },
+    {
+      "path": "Driver.h",
+      "license": "MS-PL",
+      "upstreamPath": "video/IndirectDisplay/IddSampleDriver/Driver.h",
+      "upstreamUrl": "https://raw.githubusercontent.com/microsoft/Windows-driver-samples/d49bb7d72f3651952b2b6e4ad28d14fe2247eb69/video/IndirectDisplay/IddSampleDriver/Driver.h",
+      "upstreamSha256": "1e9a431342cb57e3cc14e9d9f671c4def164eeaaa0b99dc33f00de1e37487c0c",
+      "sha256": "d7c3efc9918f8d86fd54cee9131f9b0879a4f253c42557b065aa259c4aa17e58",
+      "bytes": 3426
+    },
+    {
+      "path": "RETSARIddLab.inf.template",
+      "license": "MS-PL",
+      "upstreamPath": "video/IndirectDisplay/IddSampleDriver/IddSampleDriver.inf",
+      "upstreamUrl": "https://raw.githubusercontent.com/microsoft/Windows-driver-samples/d49bb7d72f3651952b2b6e4ad28d14fe2247eb69/video/IndirectDisplay/IddSampleDriver/IddSampleDriver.inf",
+      "upstreamSha256": "cbbdb28ff33a515515d63e2c7c3562f77c9d2ab0e44733deb3df92ca38ae9e36",
+      "sha256": "f153d9a115004f883d65470200fe0123948574433bed21e3fb8bd56a7839abdb",
+      "bytes": 1414
+    },
+    {
+      "path": "SwDeviceHolder.cpp",
+      "license": "MIT",
+      "origin": "Original RETSAR laboratory source; repository LICENSE applies.",
+      "sha256": "8d237f0d78db05669ded9ba5ab1ca85bdceebd367d80d68287b212b1887ebadd",
+      "bytes": 13432
+    },
+    {
+      "path": "SwDeviceHolder.manifest",
+      "license": "MIT",
+      "origin": "Original RETSAR laboratory source; repository LICENSE applies.",
+      "sha256": "d938b29fbbf877bb09fea79d3d6c250aa5aee1c786083fd8186ab6462a8f9f54",
+      "bytes": 504
+    }
+  ],
+  "textEncoding": "UTF-8 without BOM",
+  "lineEndings": "LF",
+  "upstreamHashScope": "Original acquired bytes; no normalization applied to upstreamSha256."
+}

@@ -66,7 +66,7 @@
       "regressionTestPassed": true,
       "freshCorrectedInstallationVerified": true,
       "verificationScope": "Corrected installation reached the desktop and the role/service marker. Later RDP reference and custom-provider activation observations are recorded separately.",
-      "nextStep": "Diagnose custom-listener discovery and service initialization, retaining failed evidence and completing cleanup of owned experiment resources.",
+      "nextStep": "Preserve the verified service/listener activation and cleanup evidence, then implement a bounded authenticated connection trigger.",
       "constraintSource": "https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands-synchronouscommand-commandline"
     },
     "guestSessionCreationProven": false,
@@ -104,7 +104,7 @@
     },
     "providerActivationObservation": {
       "scope": "Disposable Server guest only; activation diagnostics remain distinct from native session creation.",
-      "serviceActivationProven": false,
+      "serviceActivationProven": true,
       "nativeSessionCreated": false,
       "physicalSeatCreated": false,
       "attempts": [
@@ -139,6 +139,21 @@
           "retsarEvents": 0,
           "systemMetadataRecords": 2,
           "eventsLost": 0
+        },
+        {
+          "configuration": "own enabled listener with explicit DLL NetworkService read/execute",
+          "startup": "guest service restart",
+          "retsarEvents": 21,
+          "allProviderEventsFromTermService": true,
+          "providerModuleObserved": true,
+          "managerInitializeHResult": "0x00000000",
+          "managerCreateListenerHResult": "0x00000000",
+          "listenerStartListenHResult": "0x00000000",
+          "listenerGetSettingsHResult": "0x80004001",
+          "getSettingsFailureDidNotPreventStartListen": true,
+          "notifyServiceStateChangeHResult": "0x80004001",
+          "newWtsListenerObserved": true,
+          "newInteractiveUserObserved": false
         }
       ],
       "listenerFlagScope": "Inferred from Microsoft's RDP-Tcp prerequisite; not a guarantee for a custom protocol. No other listener defaults or security policies copied.",
@@ -170,10 +185,33 @@
         "rdpTcpRegistryUnchanged": true
       },
       "secondAttempt": {
-        "providerRegistered": true,
-        "finalCleanup": "pending targeted diagnosis"
+        "providerRegistered": false,
+        "finalCleanup": "verified",
+        "ownTraceStopped": true,
+        "ownAutoLoggerRemoved": true,
+        "ownProviderKeysRemoved": true,
+        "ownDllRemoved": true,
+        "rdpTcpRegistryUnchanged": true
       },
-      "nextStep": "Targeted custom-listener discovery and service initialization diagnosis."
+      "nextStep": "Implement a bounded authenticated trigger reaching the service-created listener; connection and licensing contracts remain unimplemented.",
+      "listenerStartupProven": true,
+      "thirdAttempt": {
+        "providerRegistered": false,
+        "activationCollected": true,
+        "bootTraceArmed": false,
+        "finalCleanup": "verified",
+        "dllDaclBefore": "Full control for SYSTEM, Administrators and local Administrator; no NetworkService grant.",
+        "dllDaclAfter": "Protected DACL: SYSTEM and Administrators full control; NetworkService read/execute.",
+        "dllBytesChanged": false,
+        "connectionAttempted": false,
+        "licensingExchangeObserved": false,
+        "newInteractiveUserObserved": false,
+        "ownTraceStopped": true,
+        "ownProviderKeysRemoved": true,
+        "ownDllRemoved": true,
+        "rdpTcpRegistryUnchanged": true,
+        "evidenceRetained": true
+      }
     },
     "whpxResetFailure": {
       "observed": true,
@@ -187,31 +225,32 @@
       "resetReliabilityVerified": false
     },
     "helperValidation": {
-      "localPowerShellChecks": 168,
+      "localPowerShellChecks": 175,
       "localBreakdown": {
         "observer": 27,
         "reference": 9,
-        "activation": 66,
+        "activation": 73,
         "bootTrace": 66
       },
       "verifiedCi": {
-        "commit": "aa8761ad26302153b45e70d0df824d4ee32d5230",
-        "run": 43265307026,
-        "job": 131347162820,
+        "commit": "f2063b849a4725836cf050432bd0ec072f7c4c1e",
+        "run": 43271355596,
+        "job": 131368415784,
         "cppCliChecks": 243,
         "pythonChecks": 46,
-        "powerShellChecks": 97,
+        "powerShellChecks": 168,
         "powerShellBreakdown": {
           "observer": 27,
           "reference": 9,
-          "activation": 61
+          "activation": 66,
+          "bootTrace": 66
         },
-        "guestScriptsParsed": 4,
+        "guestScriptsParsed": 5,
         "failed": 0,
         "skipped": 0
       },
-      "laterHelperRevisionCi": "pending",
-      "scope": "Inert logic, layout and synthetic buffers; no WTS, ETW control, registry, service or guest operations."
+      "laterHelperRevisionCi": "pending for the DLL-permission correction",
+      "scope": "Inert logic, in-memory security descriptors, layout and synthetic buffers; no file ACL changes, WTS, ETW control, registry, service or guest operations."
     },
     "guestSessionCreationScope": "This flag refers to a RETSAR-created owned session; the separately observed Microsoft RDP reference does not satisfy it.",
     "developmentStorageScope": "Current source, builds and heavy laboratory assets are on D:. No concrete private host paths are published."

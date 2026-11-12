@@ -55,20 +55,31 @@ The boot trace follows Microsoft's [AutoLogger configuration contract](https://l
 
 ## Observed activation results
 
+**Service activation and listener startup are now verified in the disposable Server guest. No client connection, licensing exchange, user session or physical seat was created by this experiment.**
+
 | Experiment | Observed result |
 | --- | --- |
 | Minimal owned registration, guest service restart | Service Control Manager reported Running, but LocalSessionManager event 17 reported `0x800706BA`. The provider DLL was absent from the observed service process. Zero RETSAR events. |
 | Minimal registration, cold boot | Zero RETSAR events; service activation was not demonstrated. |
 | Own listener with `fEnableWinStation=1`, guest service restart | Zero RETSAR events; the additional listener flag did not demonstrate activation. |
-| Own enabled listener, clean power-off and new guest launch | Zero RETSAR events; service activation remains unproven. |
+| Own enabled listener, clean power-off and new guest launch | Zero RETSAR events; service activation was not demonstrated in this attempt. |
+| Own enabled listener, explicit DLL read/execute permission, guest service restart | 21 RETSAR events, all from the independently identified TermService process; manager initialization, listener creation and `StartListen` returned `S_OK`. |
 
-Each of those four traces contained two system metadata records and no RETSAR event, with `EventsLost=0`. The retained metadata included the undecoded partition record `15005`. Those records are not provider calls. Successful AutoLogger startup statuses likewise prove neither DLL loading nor manager/listener initialization.
+Each of the first four traces contained two system metadata records and no RETSAR event, with `EventsLost=0`. The retained metadata included the undecoded partition record `15005`. Those records are not provider calls. Successful AutoLogger startup statuses likewise prove neither DLL loading nor manager/listener initialization.
 
 A separate, explicitly invoked COM control constructed the manager and produced **31 decoded RETSAR events**, all from its own control process rather than the independently identified TermService process. This establishes that COM activation and trace decoding work in that control context. It does not convert the four service traces into successful activation evidence.
 
 The enabled-listener experiment adds only `fEnableWinStation` DWORD `1` to the project's key. Microsoft documents this prerequisite for RDP-Tcp; applying it to the custom listener is an engineering hypothesis, not a documented guarantee. No other listener defaults or security policies are copied. [Microsoft listener troubleshooting](https://learn.microsoft.com/en-us/troubleshoot/windows-server/remote/remote-desktop-cannot-connect-remote-computer).
 
-The first attempt's own AutoLogger, provider keys and DLL were removed with verification, and the standard RDP listener's registry values were unchanged. The second attempt remains registered for targeted diagnosis; its final cleanup is pending. No host provider, driver, service or physical device was changed.
+The first two attempts completed verified cleanup: their owned traces were stopped, AutoLogger and provider keys were removed, and the provider DLLs were removed. The standard RDP listener's registry values remained unchanged. Their receipts and captured evidence were retained. The third attempt also completed verified cleanup: its owned provider registration and DLL were removed, the standard RDP listener remained unchanged, and captured evidence was retained. No boot trace was armed for that attempt. No host provider, driver, service or physical device was changed.
+
+## Verified service activation after the DLL permission correction
+
+The staged DLL's observed DACL initially granted full control only to SYSTEM, Administrators and the local Administrator; it lacked the NetworkService read/execute grant. The helper now applies a protected descriptor directly to the hash-verified DLL: SYSTEM and Administrators retain full control, and NetworkService receives read/execute. The existing directory grant alone did not supply those rights to the staged file. The change preserves the DLL's bytes and the listener registration.
+
+After this correction, the third service-restart capture contained **21 decoded RETSAR events, all from TermService's independently identified PID**. The collector also observed the provider module in that process. The trace includes `DLL.ProcessAttach`, `DllGetClassObject`, factory creation, `Manager.Initialize`, `Manager.CreateListener` and `Listener.StartListen`; the returned methods succeeded with `S_OK`. WTS showed a new listener row and no added interactive user session.
+
+`Listener.GetSettings` returned `E_NOTIMPL` (`0x80004001`), and the service continued to successful `StartListen`. `Manager.NotifyServiceStateChange` later returned `E_NOTIMPL`. Neither return is relabelled as success, but the observed continuation rules out treating `GetSettings` alone as a startup blocker in this run. The [official listener sample](https://github.com/Azure/Remote-Desktop-Services-Protocol-Sample/blob/main/Sample/TestProtocol_Ext/WRdsProtocolListener.cpp) also leaves this optional method unimplemented. This milestone proves activation and the supplied listener callback, not connection handling, licensing or a usable seat.
 
 ## Hypervisor outcome
 
@@ -78,6 +89,6 @@ An in-guest restart under WHPX encountered virtual-processor exit 4 and QMP `gue
 
 The instrumented bridge compiled with MSVC `/W4 /WX`, and its in-process harness passed 125 mock checks. Two separate argument checks rejected a disallowed drive prefix and a UNC path before COM initialization or DLL loading. Those prefix checks do not establish path ownership or reject every reparse point.
 
-The current local helper suites passed **66 activation checks and 66 boot-trace checks**, covering pure admission/ownership logic, registry-shape consistency, native structure layout and synthetic buffers. They do not invoke WTS, ControlTrace, registry mutations or service operations. The live experiments above are separate evidence, not additional automated passes. See the [revision-specific CI results](PROGRESS.md).
+The current local helper suites passed **73 activation checks and 66 boot-trace checks**, covering pure admission/ownership logic, in-memory DLL security descriptors, registry-shape consistency, native structure layout and synthetic buffers. They do not invoke WTS, ControlTrace, registry mutations or service operations. The live experiments above are separate evidence, not additional automated passes. See the [revision-specific CI results](PROGRESS.md).
 
-The next investigation is targeted diagnosis of custom-listener discovery and service initialization. Session creation, physical display assignment, keyboard/mouse isolation and Windows Home compatibility remain unvalidated.
+The next integration step is an authenticated, bounded trigger reaching the service-created listener, followed by real connection and licensing contracts. That trigger is not implemented by this milestone. Session creation, physical display assignment, keyboard/mouse isolation and Windows Home compatibility remain unvalidated.

@@ -2,7 +2,7 @@
 
 This document defines a research direction and its acceptance tests. It does not describe an operational provider or installation instructions for an everyday computer.
 
-The [original SDK bridge](RDS-BRIDGE.md) implements an opt-in, in-process integration scaffold. Its callback tests use mocks; service integration remains unverified. The [isolated laboratory](../lab/README.md) documents the separate guest preparation and supervision path.
+The [original SDK bridge](RDS-BRIDGE.md) implements an opt-in integration scaffold. Its callback tests use mocks; a separate [live activation experiment](ACTIVATION-TRACE.md#verified-service-activation-after-the-dll-permission-correction) has now verified TermService loading the provider and starting its listener. No native client connection, licensing exchange or user-session creation has been demonstrated. The [isolated laboratory](../lab/README.md) documents the separate guest preparation and supervision path.
 
 The [integration-gaps review](RDS-INTEGRATION-GAPS.md) details the service, licensing, authentication and device contracts still missing from that bridge.
 
@@ -107,4 +107,4 @@ A focused repeat, without rerunning the probe, verified complete before/connecte
 
 This investigation uses Microsoft documentation and the public Azure sample at [commit `0b5a0bae1cc1c2a667b5962bd7847d5181ae375f`](https://github.com/Azure/Remote-Desktop-Services-Protocol-Sample/tree/0b5a0bae1cc1c2a667b5962bd7847d5181ae375f). The implementation is original SDK-based code; no Azure sample implementation is incorporated. Before any future code reuse, preserve the exact source revision and license.
 
-There is no project-owned experimental validation of this provider candidate in this preview. The conclusion is **a candidate provider awaiting validation**, not guaranteed compatibility or a general claim that Windows multiseat is impossible.
+Project-owned guest evidence now validates service activation and listener startup for this provider. The conclusion is **a service-activated provider whose connection, licensing, session and device integration remain unvalidated**, not guaranteed compatibility or a completed physical seat. These results establish no general claim that Windows multiseat is impossible.

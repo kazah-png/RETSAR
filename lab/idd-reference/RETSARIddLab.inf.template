@@ -1,0 +1,53 @@
+; RETSAR laboratory source template; derived from Microsoft IddSample under MS-PL.
+[Version]
+Signature="$Windows NT$"
+Class=Display
+ClassGUID={4D36E968-E325-11CE-BFC1-08002BE10318}
+ClassVer=2.0
+Provider=%Manufacturer%
+CatalogFile=RETSARIddLab.cat
+DriverVer=@DRIVER_DATE@,@DRIVER_VERSION@
+PnpLockDown=1
+
+[Manufacturer]
+%Manufacturer%=Models,NTamd64.10.0.3..20348
+[Models.NTamd64.10.0.3..20348]
+%DeviceName%=DeviceInstall,RETSARIddLab
+
+[SourceDisksFiles]
+RETSARIddLab.dll=1
+[SourceDisksNames]
+1=%DiskName%
+[DestinationDirs]
+DriverCopy=12,UMDF
+
+[DeviceInstall.NT]
+CopyFiles=DriverCopy
+[DeviceInstall.NT.HW]
+AddReg=DeviceHardware
+[DeviceHardware]
+HKR,,UpperFilters,0x00010000,"IndirectKmd"
+[DeviceInstall.NT.Services]
+AddService=WUDFRd,0x000001fa,WUDFRD_ServiceInstall
+[WUDFRD_ServiceInstall]
+DisplayName="Windows Driver Frameworks - User-mode Driver Framework Reflector"
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\WUDFRd.sys
+
+[DeviceInstall.NT.Wdf]
+UmdfService=RETSARIddLab,RETSARIddLab_Service
+UmdfServiceOrder=RETSARIddLab
+UmdfKernelModeClientPolicy=AllowKernelModeClients
+[RETSARIddLab_Service]
+UmdfLibraryVersion=2.25.0
+ServiceBinary=%12%\UMDF\RETSARIddLab.dll
+UmdfExtensions=IddCx0102
+UmdfHostProcessSharing=ProcessSharingDisabled
+[DriverCopy]
+RETSARIddLab.dll
+[Strings]
+Manufacturer="RETSAR Laboratory"
+DeviceName="RETSAR Laboratory Virtual Display"
+DiskName="RETSAR private laboratory driver"

@@ -1,16 +1,16 @@
 #requires -Version 5.1
-# Exercise pure validators and a synthetic-buffer decoder. Never execute the guest script,
+# Exercise pure validators, security descriptors and a synthetic-buffer decoder. Never execute the guest script,
 # WTS functions, registry/service commands, ETW sessions or provider DLL loading.
 $ErrorActionPreference = 'Stop'
 $source = Join-Path (Split-Path -Parent $PSScriptRoot) 'lab\guest-provider-activation.ps1'
 $tokens=$null; $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($source,[ref]$tokens,[ref]$errors)
 if ($errors.Count) { throw ($errors.Message -join '; ') }
-$names=@('Assert-ActivationLeaf','Assert-ActivationReceipt','Assert-OnlyGuestConsole','Assert-RegistryShape','Assert-CallerSession','Expected-ListenerShape')
+$names=@('Assert-ActivationLeaf','Assert-ActivationReceipt','Assert-OnlyGuestConsole','Assert-RegistryShape','Assert-CallerSession','Expected-ListenerShape','New-ActivationDllSecurity')
 foreach($name in $names) {
     $functions=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
     if($functions.Count -ne 1) { throw ('Missing or duplicate pure validator: '+$name) }
-    # Only the six reviewed function declarations are evaluated.
+    # Only the seven reviewed function declarations are evaluated.
     . ([scriptblock]::Create($functions[0].Extent.Text))
 }
 $script:checks=0
@@ -22,6 +22,36 @@ function Reject([string]$Name,[scriptblock]$Test) {
     if(!$rejected) { throw ('FAIL ACTIVATION: accepted '+$Name) }
     Pass $Name
 }
+# Security objects stay in memory: these checks do not read or apply file ACLs.
+$dllSecurity=New-ActivationDllSecurity
+if(!$dllSecurity.AreAccessRulesProtected) {throw 'DLL ACL must not inherit a staging descriptor.'}
+Pass 'DLL descriptor disables inherited rules'
+if($dllSecurity.GetOwner([Security.Principal.SecurityIdentifier]).Value -cne 'S-1-5-32-544') {throw 'Unexpected DLL owner.'}
+Pass 'DLL descriptor owner is the fixed Administrators SID'
+$dllRules=@($dllSecurity.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+$expectedSids=@('S-1-5-18','S-1-5-20','S-1-5-32-544')
+if($dllRules.Count -ne 3 -or ((@($dllRules.IdentityReference.Value | Sort-Object) -join '|') -cne ($expectedSids -join '|'))) {throw 'Unexpected DLL ACL principals.'}
+foreach($rule in $dllRules) {
+    if($rule.IsInherited -or $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+        $rule.InheritanceFlags -ne [Security.AccessControl.InheritanceFlags]::None -or
+        $rule.PropagationFlags -ne [Security.AccessControl.PropagationFlags]::None) {throw 'DLL ACL has a nonexplicit or non-file rule.'}
+}
+Pass 'DLL descriptor contains only three explicit file-only allow rules'
+$serviceRule=@($dllRules | Where-Object {$_.IdentityReference.Value -ceq 'S-1-5-20'})[0]
+$expectedReadExecute=[Security.AccessControl.FileSystemRights]::ReadAndExecute -bor [Security.AccessControl.FileSystemRights]::Synchronize
+if($serviceRule.FileSystemRights -ne $expectedReadExecute) {throw 'NetworkService requires exact read/execute/synchronize without write or ACL control.'}
+Pass 'NetworkService can read and execute the DLL without write or ownership rights'
+foreach($sid in @('S-1-5-18','S-1-5-32-544')) {
+    $ownerRule=@($dllRules | Where-Object {$_.IdentityReference.Value -ceq $sid})[0]
+    if($ownerRule.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl) {throw 'Administrator or SYSTEM cleanup rights are missing.'}
+    Pass ('DLL full control retained for '+$sid)
+}
+$dllAclWrites=@($ast.FindAll({param($node)
+    $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Set-Acl' -and
+    $node.Extent.Text -ceq 'Set-Acl -LiteralPath $dll -AclObject (New-ActivationDllSecurity)'
+},$true))
+if($dllAclWrites.Count -ne 1) {throw 'Expected one explicit application to the verified DLL leaf.'}
+Pass 'Guest operation applies the reviewed descriptor only to its DLL leaf'
 $valid=[pscustomobject][ordered]@{
     schema='retsar.provider-activation.v1';runId='0123456789abcdef0123456789abcdef';
     traceName='RETSAR-Activation-0123456789abcdef0123456789abcdef';
@@ -195,4 +225,4 @@ $script:mockListener.values[0].data=0
 Reject 'Boot helper rejects disabled listener' {Assert-ActivationRegistration}
 $script:mockListener.values=@($script:mockListener.values|Where-Object {$_.name -cne 'fEnableWinStation'})
 Reject 'Boot helper rejects missing listener enable flag' {Assert-ActivationRegistration}
-Write-Output ('ACTIVATION TOTAL '+$script:checks+' passed, 0 failed; pure validators and synthetic buffers only, no WTS calls, guest, registry, service or ETW operations.')
+Write-Output ('ACTIVATION TOTAL '+$script:checks+' passed, 0 failed; pure validators, in-memory security descriptors and synthetic buffers only, no file ACL changes, WTS calls, guest, registry, service or ETW operations.')

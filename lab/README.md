@@ -1,6 +1,6 @@
 # Windows Server laboratory
 
-This directory contains an opt-in Windows QEMU supervisor and a deployment template for testing the C++ RDS provider in a **real Windows Server guest**. The guest booted with WHPX and verified the installed RD Session Host role and running service. Microsoft's guest-local RDP reference produced concurrent logons, an exported candidate probe and a separately verified manual same-boot sign-out/cleanup cycle. The connection helper still reaches its observation timeout. **RETSAR provider readiness and physical-seat creation remain unverified.** See the [reference results](RDP-REFERENCE.md) and [verified progress](../docs/PROGRESS.md).
+This directory contains an opt-in Windows QEMU supervisor and a deployment template for testing the C++ RDS provider in a **real Windows Server guest**. The guest booted with WHPX and verified the installed RD Session Host role and running service. Microsoft's guest-local RDP reference produced concurrent logons, an exported candidate probe and a separately verified manual same-boot sign-out/cleanup cycle. The connection helper still reaches its observation timeout. **RETSAR service activation and listener startup are verified; connection handling, user-session creation and physical-seat operation remain unverified.** See the [reference results](RDP-REFERENCE.md) and [verified progress](../docs/PROGRESS.md).
 
 The supervisor and answer template passed 46 inert Python tests, including simulated WHP and restricted management configurations. Two separate native checks terminated only newly created sleeping Python helper processes. The earlier reference experiment ended with a clean guest shutdown. Subsequent provider activation work is still in progress; see the [activation evidence and cleanup state](../docs/ACTIVATION-TRACE.md).
 
@@ -122,17 +122,19 @@ QEMU is a separate tool under GPLv2, with component-specific licenses. Its binar
 - [ ] Activation and updates network arrangement agreed.
 - [ ] Private answer ISO, credential handling and guest-disk-only wipe reviewed for this deployment.
 - [x] `rdsh-configured` evidence confirms the installed role and running service after WHPX boot.
-- [ ] Provider readiness verified separately from role installation and service status.
+- [x] RETSAR service activation and listener startup verified separately from role installation and service status.
 - [x] Microsoft RDP reference logons and manual same-boot cleanup observed; helper timeout remains.
 - [x] Explicit manual COM control and TraceLogging decoding observed in the control process.
-- [ ] RETSAR service activation, owned session lifecycle and physical display/input isolation verified.
+- [ ] RETSAR connection/licensing contracts, owned session lifecycle and physical display/input isolation verified.
 
-Checked items record only the stated observations and carry no deployment approval. The RDP reference and manual COM control do not prove a RETSAR-created session or a physical seat. Provider readiness and the second activation attempt's final cleanup remain pending.
+Checked items record only the stated observations and carry no deployment approval. The RDP reference and manual COM control do not prove a RETSAR-created session or a physical seat. Real service/listener activation does not establish those later stages. The first two activation attempts completed verified cleanup of their owned traces, AutoLogger, provider keys and DLL, with the standard RDP listener unchanged. The third also completed verified removal of its owned provider registration and DLL, with the standard RDP listener unchanged and evidence retained. No boot trace was armed for it.
 
 ## Provider activation and boot capture
 
 The [activation helper](guest-provider-activation.ps1) registers only the project's disposable guest CLSID and listener, records its DLL hash and ownership, and can collect a bounded service-restart trace. The separate [boot-trace helper](guest-provider-boot-trace.ps1) has an Arm → separately authorized guest reboot → Collect → Cleanup sequence. It uses one owned AutoLogger and a separate 16 MiB circular file; Collect disables the next-boot setting before stopping or decoding. It never performs a reboot or service change itself. The [workflow and observed results](../docs/ACTIVATION-TRACE.md) explain the guest gates, loss/status fields and required cleanup order.
 
-Four real service captures contained zero RETSAR events. The first restart produced LocalSessionManager error `0x800706BA` while TermService reported Running. A separate manual COM control emitted 31 decoded events from its own process; this validates that control, not service startup. The first experiment's cleanup was verified; the second remains registered for targeted diagnosis and pending cleanup.
+The first two attempts produced four service captures with zero RETSAR events. The first restart produced LocalSessionManager error `0x800706BA` while TermService reported Running. A separate manual COM control emitted 31 decoded events from its own process. Both early attempts completed verified cleanup, with the standard RDP listener unchanged.
+
+The third attempt applied an explicit read/execute grant for NetworkService to the staged DLL. Its **21 decoded RETSAR events all came from TermService**, and the module was observed in that process. Manager initialization, listener creation and `StartListen` succeeded; `GetSettings=E_NOTIMPL` did not prevent startup. A later service-state notification remained unimplemented. WTS showed a new listener without a new interactive user. The third attempt completed verified cleanup of its owned provider registration and DLL, with the standard RDP listener unchanged and evidence retained. No boot trace was armed; this is activation evidence, not a usable session.
 
 An in-guest WHPX restart encountered virtual-processor exit 4 and QMP `guest-panic` despite process exit zero. A structural disk check found no qcow2 error but did not verify filesystem integrity. Later clean power-off and a fresh launch worked. Do not treat process exit zero alone as a clean guest shutdown or claim reset stability.

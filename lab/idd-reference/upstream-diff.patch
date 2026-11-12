@@ -1,0 +1,418 @@
+--- a/video/IndirectDisplay/IddSampleDriver/Driver.cpp
++++ b/lab/idd-reference/Driver.cpp
+@@ -16,7 +16,35 @@
+ --*/
+ 
+ #include "Driver.h"
+-#include "Driver.tmh"
++#include <TraceLoggingProvider.h>
++#include <atomic>
++// WPP is unused by this isolated reference build.
++
++// Original RETSAR laboratory diagnostics: state and counters only, never frame pixels or input.
++TRACELOGGING_DEFINE_PROVIDER(g_labTrace, "RETSAR.Lab.IddReference",
++    (0x38e4154b, 0xe31d, 0x4edc, 0xa3, 0xb7, 0x7a, 0x13, 0x9b, 0x63, 0x42, 0x3c));
++static std::atomic<bool> g_labTraceRegistered{false};
++static std::atomic<ULONGLONG> g_labFrames{0};
++static std::atomic<ULONGLONG> g_labSwapchains{0};
++
++static void StopLabTelemetry()
++{
++    if (g_labTraceRegistered.exchange(false))
++    {
++        TraceLoggingWrite(g_labTrace, "DriverUnload",
++            TraceLoggingUInt64(g_labFrames.load(), "FramesAcquired"),
++            TraceLoggingUInt64(g_labSwapchains.load(), "SwapchainsAssigned"));
++        TraceLoggingUnregister(g_labTrace);
++    }
++}
++
++EVT_WDF_DRIVER_UNLOAD LabDriverUnload;
++_Use_decl_annotations_
++void LabDriverUnload(WDFDRIVER driver)
++{
++    UNREFERENCED_PARAMETER(driver);
++    StopLabTelemetry();
++}
+ 
+ using namespace std;
+ using namespace Microsoft::IndirectDisp;
+@@ -24,14 +52,12 @@
+ 
+ #pragma region SampleMonitors
+ 
+-static constexpr DWORD IDD_SAMPLE_MONITOR_COUNT = 3; // If monitor count > ARRAYSIZE(s_SampleMonitors), we create edid-less monitors
++static constexpr DWORD IDD_SAMPLE_MONITOR_COUNT = 1; // If monitor count > ARRAYSIZE(s_SampleMonitors), we create edid-less monitors
+ 
+ // Default modes reported for edid-less monitors. The first mode is set as preferred
+ static const struct IndirectSampleMonitor::SampleMonitorMode s_SampleDefaultModes[] = 
+ {
+-    { 1920, 1080, 60 },
+-    { 1600,  900, 60 },
+-    { 1024,  768, 75 },
++    { 1280, 720, 60 },
+ };
+ 
+ // FOR SAMPLE PURPOSES ONLY, Static info about monitors that will be reported to OS
+@@ -181,6 +207,10 @@
+     PUNICODE_STRING pRegistryPath
+ )
+ {
++    const ULONG traceError = TraceLoggingRegister(g_labTrace);
++    if (traceError != ERROR_SUCCESS) return STATUS_UNSUCCESSFUL;
++    g_labTraceRegistered.store(true);
++    TraceLoggingWrite(g_labTrace, "DriverEntry", TraceLoggingUInt32(GetCurrentProcessId(), "ProcessId"));
+     WDF_DRIVER_CONFIG Config;
+     NTSTATUS Status;
+ 
+@@ -191,9 +221,12 @@
+         IddSampleDeviceAdd
+     );
+ 
++    Config.EvtDriverUnload = LabDriverUnload;
+     Status = WdfDriverCreate(pDriverObject, pRegistryPath, &Attributes, &Config, WDF_NO_HANDLE);
++    TraceLoggingWrite(g_labTrace, "DriverCreate", TraceLoggingNTStatus(Status, "Status"));
+     if (!NT_SUCCESS(Status))
+     {
++        StopLabTelemetry();
+         return Status;
+     }
+ 
+@@ -203,6 +236,7 @@
+ _Use_decl_annotations_
+ NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
+ {
++    TraceLoggingWrite(g_labTrace, "DeviceAdd");
+     NTSTATUS Status = STATUS_SUCCESS;
+     WDF_PNPPOWER_EVENT_CALLBACKS PnpPowerCallbacks;
+ 
+@@ -230,6 +264,7 @@
+     IddConfig.EvtIddCxMonitorUnassignSwapChain = IddSampleMonitorUnassignSwapChain;
+ 
+     Status = IddCxDeviceInitConfig(pDeviceInit, &IddConfig);
++    TraceLoggingWrite(g_labTrace, "DeviceInitConfig", TraceLoggingNTStatus(Status, "Status"));
+     if (!NT_SUCCESS(Status))
+     {
+         return Status;
+@@ -249,12 +284,14 @@
+ 
+     WDFDEVICE Device = nullptr;
+     Status = WdfDeviceCreate(&pDeviceInit, &Attr, &Device);
++    TraceLoggingWrite(g_labTrace, "DeviceCreate", TraceLoggingNTStatus(Status, "Status"));
+     if (!NT_SUCCESS(Status))
+     {
+         return Status;
+     }
+ 
+     Status = IddCxDeviceInitialize(Device);
++    TraceLoggingWrite(g_labTrace, "DeviceInitialize", TraceLoggingNTStatus(Status, "Status"));
+ 
+     // Create a new device context object and attach it to the WDF device object
+     auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(Device);
+@@ -267,6 +304,7 @@
+ NTSTATUS IddSampleDeviceD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
+ {
+     UNREFERENCED_PARAMETER(PreviousState);
++    TraceLoggingWrite(g_labTrace, "DeviceD0Entry");
+ 
+     // This function is called by WDF to start the device in the fully-on power state.
+ 
+@@ -379,6 +417,7 @@
+     SetDevice.pDevice = DxgiDevice.Get();
+ 
+     hr = IddCxSwapChainSetDevice(m_hSwapChain, &SetDevice);
++    TraceLoggingWrite(g_labTrace, "SwapchainSetDevice", TraceLoggingHResult(hr, "Result"));
+     if (FAILED(hr))
+     {
+         return;
+@@ -424,6 +463,9 @@
+         {
+             // We have new frame to process, the surface has a reference on it that the driver has to release
+             AcquiredBuffer.Attach(Buffer.MetaData.pSurface);
++            const ULONGLONG frames = g_labFrames.fetch_add(1) + 1;
++            if (frames == 1 || frames % 60 == 0)
++                TraceLoggingWrite(g_labTrace, "FramesAcquired", TraceLoggingUInt64(frames, "Count"));
+ 
+             // ==============================
+             // TODO: Process the frame here
+@@ -450,6 +492,7 @@
+             hr = IddCxSwapChainFinishedProcessingFrame(m_hSwapChain);
+             if (FAILED(hr))
+             {
++                TraceLoggingWrite(g_labTrace, "FinishFrameFailed", TraceLoggingHResult(hr, "Result"));
+                 break;
+             }
+ 
+@@ -463,6 +506,8 @@
+         else
+         {
+             // The swap-chain was likely abandoned (e.g. DXGI_ERROR_ACCESS_LOST), so exit the processing loop
++            TraceLoggingWrite(g_labTrace, "AcquireStopped", TraceLoggingHResult(hr, "Result"),
++                TraceLoggingUInt64(g_labFrames.load(), "FramesAcquired"));
+             break;
+         }
+     }
+@@ -501,9 +546,9 @@
+     AdapterCaps.EndPointDiagnostics.TransmissionType = IDDCX_TRANSMISSION_TYPE_WIRED_OTHER;
+ 
+     // Declare your device strings for telemetry (required)
+-    AdapterCaps.EndPointDiagnostics.pEndPointFriendlyName = L"IddSample Device";
+-    AdapterCaps.EndPointDiagnostics.pEndPointManufacturerName = L"Microsoft";
+-    AdapterCaps.EndPointDiagnostics.pEndPointModelName = L"IddSample Model";
++    AdapterCaps.EndPointDiagnostics.pEndPointFriendlyName = L"RETSAR Laboratory Virtual Display";
++    AdapterCaps.EndPointDiagnostics.pEndPointManufacturerName = L"RETSAR Laboratory";
++    AdapterCaps.EndPointDiagnostics.pEndPointModelName = L"Private console IDD reference";
+ 
+     // Declare your hardware and firmware versions (required)
+     IDDCX_ENDPOINT_VERSION Version = {};
+@@ -524,6 +569,7 @@
+     // Start the initialization of the adapter, which will trigger the AdapterFinishInit callback later
+     IDARG_OUT_ADAPTER_INIT AdapterInitOut;
+     NTSTATUS Status = IddCxAdapterInitAsync(&AdapterInit, &AdapterInitOut);
++    TraceLoggingWrite(g_labTrace, "AdapterInitRequested", TraceLoggingNTStatus(Status, "Status"));
+ 
+     if (NT_SUCCESS(Status))
+     {
+@@ -552,21 +598,14 @@
+     // In the sample driver, we report a monitor right away but a real driver would do this when a monitor connection event occurs
+     IDDCX_MONITOR_INFO MonitorInfo = {};
+     MonitorInfo.Size = sizeof(MonitorInfo);
+-    MonitorInfo.MonitorType = DISPLAYCONFIG_OUTPUT_TECHNOLOGY_HDMI;
++    MonitorInfo.MonitorType = DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INDIRECT_WIRED;
+     MonitorInfo.ConnectorIndex = ConnectorIndex;
+ 
+     MonitorInfo.MonitorDescription.Size = sizeof(MonitorInfo.MonitorDescription);
+     MonitorInfo.MonitorDescription.Type = IDDCX_MONITOR_DESCRIPTION_TYPE_EDID;
+-    if (ConnectorIndex >= ARRAYSIZE(s_SampleMonitors))
+-    {
+-        MonitorInfo.MonitorDescription.DataSize = 0;
+-        MonitorInfo.MonitorDescription.pData = nullptr;
+-    }
+-    else
+-    {
+-        MonitorInfo.MonitorDescription.DataSize = IndirectSampleMonitor::szEdidBlock;
+-        MonitorInfo.MonitorDescription.pData = const_cast<BYTE*>(s_SampleMonitors[ConnectorIndex].pEdidBlock);
+-    }
++    // The laboratory reference uses one EDID-less virtual monitor.
++    MonitorInfo.MonitorDescription.DataSize = 0;
++    MonitorInfo.MonitorDescription.pData = nullptr;
+ 
+     // ==============================
+     // TODO: The monitor's container ID should be distinct from "this" device's container ID if the monitor is not
+@@ -586,6 +625,7 @@
+     // Create a monitor object with the specified monitor descriptor
+     IDARG_OUT_MONITORCREATE MonitorCreateOut;
+     NTSTATUS Status = IddCxMonitorCreate(m_Adapter, &MonitorCreate, &MonitorCreateOut);
++    TraceLoggingWrite(g_labTrace, "MonitorCreate", TraceLoggingNTStatus(Status, "Status"));
+     if (NT_SUCCESS(Status))
+     {
+         // Create a new monitor context object and attach it to the Idd monitor object
+@@ -595,6 +635,7 @@
+         // Tell the OS that the monitor has been plugged in
+         IDARG_OUT_MONITORARRIVAL ArrivalOut;
+         Status = IddCxMonitorArrival(MonitorCreateOut.MonitorObject, &ArrivalOut);
++        TraceLoggingWrite(g_labTrace, "MonitorArrival", TraceLoggingNTStatus(Status, "Status"));
+     }
+ }
+ 
+@@ -612,8 +653,14 @@
+ {
+     m_ProcessingThread.reset();
+ 
++    const ULONGLONG assignment = g_labSwapchains.fetch_add(1) + 1;
++    TraceLoggingWrite(g_labTrace, "SwapchainAssigned", TraceLoggingUInt64(assignment, "Count"),
++        TraceLoggingUInt32(RenderAdapter.LowPart, "AdapterLuidLow"),
++        TraceLoggingInt32(RenderAdapter.HighPart, "AdapterLuidHigh"));
+     auto Device = make_shared<Direct3DDevice>(RenderAdapter);
+-    if (FAILED(Device->Init()))
++    const HRESULT deviceResult = Device->Init();
++    TraceLoggingWrite(g_labTrace, "RenderDeviceInitialize", TraceLoggingHResult(deviceResult, "Result"));
++    if (FAILED(deviceResult))
+     {
+         // It's important to delete the swap-chain if D3D initialization fails, so that the OS knows to generate a new
+         // swap-chain and try again.
+@@ -628,8 +675,9 @@
+ 
+ void IndirectMonitorContext::UnassignSwapChain()
+ {
+-    // Stop processing the last swap-chain
++    // Stop processing the last swap-chain before reporting the counter.
+     m_ProcessingThread.reset();
++    TraceLoggingWrite(g_labTrace, "SwapchainUnassigned", TraceLoggingUInt64(g_labFrames.load(), "FramesAcquired"));
+ }
+ 
+ #pragma endregion
+@@ -642,6 +690,7 @@
+     // This is called when the OS has finished setting up the adapter for use by the IddCx driver. It's now possible
+     // to report attached monitors.
+ 
++    TraceLoggingWrite(g_labTrace, "AdapterInitFinished", TraceLoggingNTStatus(pInArgs->AdapterInitStatus, "Status"));
+     auto* pDeviceContextWrapper = WdfObjectGet_IndirectDeviceContextWrapper(AdapterObject);
+     if (NT_SUCCESS(pInArgs->AdapterInitStatus))
+     {
+@@ -658,7 +707,11 @@
+ NTSTATUS IddSampleAdapterCommitModes(IDDCX_ADAPTER AdapterObject, const IDARG_IN_COMMITMODES* pInArgs)
+ {
+     UNREFERENCED_PARAMETER(AdapterObject);
+-    UNREFERENCED_PARAMETER(pInArgs);
++    UINT activePaths = 0;
++    for (UINT i = 0; i < pInArgs->PathCount; ++i)
++        if (pInArgs->pPaths[i].Flags & IDDCX_PATH_FLAGS_ACTIVE) ++activePaths;
++    TraceLoggingWrite(g_labTrace, "ModesCommitted", TraceLoggingUInt32(pInArgs->PathCount, "PathCount"),
++        TraceLoggingUInt32(activePaths, "ActivePaths"));
+ 
+     // For the sample, do nothing when modes are picked - the swap-chain is taken care of by IddCx
+ 
+@@ -764,21 +817,12 @@
+     UNREFERENCED_PARAMETER(MonitorObject);
+ 
+     vector<IDDCX_TARGET_MODE> TargetModes;
++    TargetModes.push_back(CreateIddCxTargetMode(1280, 720, 60));
+ 
+     // Create a set of modes supported for frame processing and scan-out. These are typically not based on the
+     // monitor's descriptor and instead are based on the static processing capability of the device. The OS will
+     // report the available set of modes for a given output as the intersection of monitor modes with target modes.
+ 
+-    TargetModes.push_back(CreateIddCxTargetMode(3840, 2160, 60));
+-    TargetModes.push_back(CreateIddCxTargetMode(2560, 1440, 144));
+-    TargetModes.push_back(CreateIddCxTargetMode(2560, 1440, 90));
+-    TargetModes.push_back(CreateIddCxTargetMode(2560, 1440, 60));
+-    TargetModes.push_back(CreateIddCxTargetMode(1920, 1080, 144));
+-    TargetModes.push_back(CreateIddCxTargetMode(1920, 1080, 90));
+-    TargetModes.push_back(CreateIddCxTargetMode(1920, 1080, 60));
+-    TargetModes.push_back(CreateIddCxTargetMode(1600,  900, 60));
+-    TargetModes.push_back(CreateIddCxTargetMode(1024,  768, 75));
+-    TargetModes.push_back(CreateIddCxTargetMode(1024,  768, 60));
+ 
+     pOutArgs->TargetModeBufferOutputCount = (UINT) TargetModes.size();
+ 
+--- a/video/IndirectDisplay/IddSampleDriver/Driver.h
++++ b/lab/idd-reference/Driver.h
+@@ -15,7 +15,7 @@
+ #include <memory>
+ #include <vector>
+ 
+-#include "Trace.h"
++// WPP is unused by this isolated reference build.
+ 
+ namespace Microsoft
+ {
+--- a/video/IndirectDisplay/IddSampleDriver/IddSampleDriver.inf
++++ b/lab/idd-reference/RETSARIddLab.inf.template
+@@ -1,72 +1,53 @@
+-;
+-; IddSampleDriver.inf
+-;
+-
++; RETSAR laboratory source template; derived from Microsoft IddSample under MS-PL.
+ [Version]
++Signature="$Windows NT$"
++Class=Display
++ClassGUID={4D36E968-E325-11CE-BFC1-08002BE10318}
++ClassVer=2.0
++Provider=%Manufacturer%
++CatalogFile=RETSARIddLab.cat
++DriverVer=@DRIVER_DATE@,@DRIVER_VERSION@
+ PnpLockDown=1
+-Signature="$Windows NT$"
+-ClassGUID = {4D36E968-E325-11CE-BFC1-08002BE10318}
+-Class = Display
+-ClassVer = 2.0
+-Provider=%ManufacturerName%
+-CatalogFile=IddSampleDriver.cat
+-DriverVer= ; TODO: set DriverVer in stampinf property pages
+ 
+ [Manufacturer]
+-%ManufacturerName%=Standard,NT$ARCH$.10.0...22000
+-
+-[Standard.NT$ARCH$.10.0...22000]
+-%DeviceName%=MyDevice_Install, Root\IddSampleDriver ; TODO: edit hw-id, this hardware id is used by Visual Studio remote debugging
+-%DeviceName%=MyDevice_Install, IddSampleDriver      ; TODO: edit hw-id, this hardware if is used by the IddSampleApp.exe
++%Manufacturer%=Models,NTamd64.10.0.3..20348
++[Models.NTamd64.10.0.3..20348]
++%DeviceName%=DeviceInstall,RETSARIddLab
+ 
+ [SourceDisksFiles]
+-IddSampleDriver.dll=1
++RETSARIddLab.dll=1
++[SourceDisksNames]
++1=%DiskName%
++[DestinationDirs]
++DriverCopy=12,UMDF
+ 
+-[SourceDisksNames]
+-1 = %DiskName%
++[DeviceInstall.NT]
++CopyFiles=DriverCopy
++[DeviceInstall.NT.HW]
++AddReg=DeviceHardware
++[DeviceHardware]
++HKR,,UpperFilters,0x00010000,"IndirectKmd"
++[DeviceInstall.NT.Services]
++AddService=WUDFRd,0x000001fa,WUDFRD_ServiceInstall
++[WUDFRD_ServiceInstall]
++DisplayName="Windows Driver Frameworks - User-mode Driver Framework Reflector"
++ServiceType=1
++StartType=3
++ErrorControl=1
++ServiceBinary=%12%\WUDFRd.sys
+ 
+-; =================== UMDF Device ==================================
+-
+-[MyDevice_Install.NT]
+-Include=WUDFRD.inf
+-Needs=WUDFRD.NT
+-CopyFiles=UMDriverCopy
+-
+-[MyDevice_Install.NT.hw]
+-Include=WUDFRD.inf
+-Needs=WUDFRD.NT.HW
+-AddReg = MyDevice_HardwareDeviceSettings
+-
+-[MyDevice_HardwareDeviceSettings]
+-HKR,, "UpperFilters",  %REG_MULTI_SZ%, "IndirectKmd"
+-HKR, "WUDF", "DeviceGroupId", %REG_SZ%, "IddSampleDriverGroup" ; TODO: edit driver group name, see README.md for more info
+-
+-[MyDevice_Install.NT.Services]
+-Include=WUDFRD.inf
+-Needs=WUDFRD.NT.Services
+-
+-[MyDevice_Install.NT.Wdf]
+-UmdfService=IddSampleDriver,IddSampleDriver_Install
+-UmdfServiceOrder=IddSampleDriver
+-UmdfKernelModeClientPolicy = AllowKernelModeClients
+-
+-[IddSampleDriver_Install]
+-UmdfLibraryVersion=$UMDFVERSION$
+-ServiceBinary=%12%\UMDF\IddSampleDriver.dll
+-UmdfExtensions = IddCx0102
+-
+-[DestinationDirs]
+-UMDriverCopy=12,UMDF ; copy to drivers\umdf
+-
+-[UMDriverCopy]
+-IddSampleDriver.dll
+-
+-; =================== Generic ==================================
+-
++[DeviceInstall.NT.Wdf]
++UmdfService=RETSARIddLab,RETSARIddLab_Service
++UmdfServiceOrder=RETSARIddLab
++UmdfKernelModeClientPolicy=AllowKernelModeClients
++[RETSARIddLab_Service]
++UmdfLibraryVersion=2.25.0
++ServiceBinary=%12%\UMDF\RETSARIddLab.dll
++UmdfExtensions=IddCx0102
++UmdfHostProcessSharing=ProcessSharingDisabled
++[DriverCopy]
++RETSARIddLab.dll
+ [Strings]
+-ManufacturerName="<Your manufacturer name>" ; TODO: Replace with your manufacturer name
+-DiskName = "IddSampleDriver Installation Disk" ; TODO: Replace with driver disk name
+-DeviceName="IddSampleDriver Device" ; TODO: Replace with correct device name
+-
+-REG_MULTI_SZ  = 0x00010000
+-REG_SZ        = 0x00000000
++Manufacturer="RETSAR Laboratory"
++DeviceName="RETSAR Laboratory Virtual Display"
++DiskName="RETSAR private laboratory driver"

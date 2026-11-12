@@ -63,6 +63,24 @@ function Assert-CallerSession([int]$CallerId,[int]$ConsoleId,[bool]$Management,[
     if ($CallerId -eq 0 -and $Management -and $AuthenticatedSender) { return }
     throw 'Requires the guest console or explicitly approved authenticated PowerShell management in Session0.'
 }
+function New-ActivationDllSecurity {
+    # Construct only an in-memory descriptor. Applying it is guest-gated below.
+    $security = [Security.AccessControl.FileSecurity]::new()
+    $security.SetAccessRuleProtection($true,$false)
+    $administrators = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+    $security.SetOwner($administrators)
+    foreach ($sid in @($administrators,[Security.Principal.SecurityIdentifier]::new('S-1-5-18'))) {
+        $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,
+            [Security.AccessControl.FileSystemRights]::FullControl,
+            [Security.AccessControl.AccessControlType]::Allow))
+    }
+    $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+        [Security.Principal.SecurityIdentifier]::new('S-1-5-20'),
+        [Security.AccessControl.FileSystemRights]::ReadAndExecute,
+        [Security.AccessControl.AccessControlType]::Allow))
+    $security
+}
+
 function Assert-RegistryShape($Actual, $Expected) {
     if ($null -eq $Actual -or $null -eq $Expected -or
         ($Actual | ConvertTo-Json -Depth 10 -Compress) -cne
@@ -338,6 +356,10 @@ try {
             [Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow)
         $acl.AddAccessRule($readRule)
         Set-Acl -LiteralPath $root -AclObject $acl
+        # An uploaded or moved DLL can retain a protected staging DACL; the
+        # directory's inherited RX grant does not repair that file descriptor.
+        # Apply only to this already hash-verified, owned DLL, not its parent.
+        Set-Acl -LiteralPath $dll -AclObject (New-ActivationDllSecurity)
         $runId = [guid]::NewGuid().ToString('N')
         $script:receipt = [pscustomobject][ordered]@{
             schema='retsar.provider-activation.v1';runId=$runId;classId=$classId;listener='RETSAR-Lab';

@@ -1,0 +1,38 @@
+RETSAR indirect display laboratory reference
+
+Driver.cpp, Driver.h and RETSARIddLab.inf.template are derived from the
+Microsoft Windows-driver-samples IndirectDisplay/IddSampleDriver sample.
+
+Upstream repository: https://github.com/microsoft/Windows-driver-samples
+Upstream revision: d49bb7d72f3651952b2b6e4ad28d14fe2247eb69
+Copyright (c) Microsoft Corporation
+
+The complete upstream Microsoft Public License (MS-PL), including its
+existing copyright notice, is retained in LICENSE-MS-PL.txt with LF
+line endings and unchanged license text.
+The Microsoft-derived files and RETSAR modifications to them remain
+under MS-PL. The repository's MIT license does not replace that license.
+
+Changes to the driver reference include one EDID-less 1280x720 at 60 Hz
+virtual monitor, laboratory identifiers, a Server build 20348 reflector
+INF, removal of unused WPP includes, and original TraceLogging events
+for lifecycle state and buffer counters. No frame pixels are exported.
+The public INF is a template with DriverVer placeholders.
+
+SwDeviceHolder.cpp and SwDeviceHolder.manifest are original RETSAR
+laboratory code, distributed under the MIT license in the repository
+root LICENSE. The helper uses Windows software-device APIs with a
+bounded requested handle lifetime and guest identity guards; it is
+not a copy of the upstream IddSampleApp source.
+
+source-manifest.json records the original acquired upstream hashes and
+the adapted source hashes after UTF-8 without BOM and LF normalization.
+upstream-diff.patch makes the Microsoft-derived changes comparable.
+The patch contains Microsoft-derived source excerpts and is covered
+by MS-PL for those portions. RETSAR documentation and metadata are
+covered by the repository's MIT license.
+
+This directory distributes source only. No Microsoft SDK/WDK binaries,
+headers or libraries, compiled RETSAR driver/helper, certificates,
+private keys, catalogs or machine logs are included. Toolchain licenses
+are separate from the source licenses retained here.
