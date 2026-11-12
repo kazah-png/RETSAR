@@ -2,6 +2,12 @@
 
 Progress is organized by capability and evidence. A compiled component, simulated transaction or existing session ID is not recorded as an operational native seat.
 
+## First supervised Roblox and Zzen pilot
+
+One Roblox account and an isolated Zzen copy ran in the native child desktop. After the user prepared the game and started Zzen with its own button, the bot detected **Play Again**, sent two bounded click attempts and recorded **one confirmed replay transition**. The next match was observed. The user confirmed normal mouse and keyboard use in the parent desktop while farming continued. [Trial details and limitations](CHILD-SESSION-INPUT.md#first-supervised-farming-cycle).
+
+F8 did not activate Zzen in the observed viewer attempts; the button worked, and the hotkey cause remains unresolved. This is a supervised one-account pilot, not evidence of eight-hour stability, four-account capacity, exclusive physical devices or a complete ASTER replacement. The active pilot was left running.
+
 ## Child resumption and input diagnosis
 
 The [resumption and input CI run](https://github.com/kazah-png/RETSAR/actions/runs/43303118692/job/131479239551) at [`d1c8719`](https://github.com/kazah-png/RETSAR/commit/d1c87195d66ad5b364232f09527dc35ca00078a6) passed **1,451 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. The real session/input observations below are separate supervised experiments.
@@ -12,7 +18,7 @@ A fixed, nonce-correlated Task Scheduler action reached the active child and ren
 
 The combined local checks for this increment passed **1,451 C++/CLI checks**: the optional build covered the child and bridge contracts; the lifecycle and CLI suites were completed separately using a small C: test fixture because their existing file policy rejects a D: fixture. No adversarial branch was skipped. Build products and private reports stayed on D:. These local results are separate from the previously verified public CI run below.
 
-An isolated existing Zzen preview copy was subsequently observed running in the child session, with its application window visible and initialization logged. Its default is paused; no farming was activated. The temporary launch task was independently confirmed absent while the same application process remained. The validly signed official Roblox application subsequently started in the same child and displayed its home screen; its temporary launch task was also removed. Game operation, farming and prolonged use remain unverified.
+An isolated existing Zzen preview copy was subsequently observed running in the child session, with its application window visible and initialization logged. Its default is paused; no farming was activated. The temporary launch task was independently confirmed absent while the same application process remained. The validly signed official Roblox application subsequently started in the same child and displayed its home screen; its temporary launch task was also removed. The supervised one-account replay described above subsequently verified a first farming cycle; prolonged use remains unverified.
 
 ## Native child desktop and remote-display preparation
 
