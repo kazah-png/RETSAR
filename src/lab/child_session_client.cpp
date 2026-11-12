@@ -1,5 +1,7 @@
 #include "child_session_experiment_io.hpp"
 #include "child_session_activex.hpp"
+#include "child_session_client_mode.hpp"
+#include "child_session_client_diagnostics.hpp"
 #include <algorithm>
 #include <iostream>
 
@@ -15,24 +17,30 @@ struct App {
     Com<IOleObject> object;Com<IDispatch> dispatch;Com<ExtendedSettings> extended;
     Com<IOleInPlaceObject> inplace;Com<IConnectionPoint> point;
     DWORD cookie=0;HANDLE receipt=INVALID_HANDLE_VALUE;
-    Snapshot baseline{};Inventory inventory{};
+    Snapshot baseline{};Inventory inventory{};client::Request request{};
     bool enableAttempted=false,restoreAttempted=false,restored=false,finalBaselineRestored=false;
     bool connectAttempted=false,childPropertyVerified=false;
     bool connected=false,loggedIn=false,disconnected=false;
     bool observed=false,closing=false,finished=false,journalFailed=false;
-    bool initializing=true,stopRequested=false,cleanupStarted=false;
+    bool initializing=true,stopRequested=false,cleanupStarted=false,userCloseRequested=false;
     unsigned outboundDepth=0;
     ULONG observedId=MAXDWORD;
     HRESULT failure=S_OK;const char* failureStage="none";
     ULONGLONG start=0,closeStart=0,lastRecordedDispatch=0;
+    const ULONGLONG diagnosticEpoch=GetTickCount64();
+    diagnostics::StateObservation connectionObservation{};
     wchar_t status[512]=L"Preparing a local child session. Physical display/input isolation is not implemented.";
     ~App(){Cleanup();}
     bool Record(const char* stage,HRESULT result=S_OK,LONG value=0,bool valuePresent=false)noexcept {
         try {
             std::ostringstream out;out.imbue(std::locale::classic());
             out<<"{\"schema\":\"retsar.child-session-client.v1\",\"stage\":\""<<stage
-               <<"\",\"hresult\":"<<static_cast<ULONG>(result)<<",\"value\":";
+               <<"\",\"elapsedMs\":"<<(GetTickCount64()-diagnosticEpoch)
+               <<",\"hresult\":"<<static_cast<ULONG>(result)<<",\"value\":";
             if(valuePresent)out<<value;else out<<"null";
+            out<<",\"connectionMode\":\""<<client::ModeName(request.mode)<<"\",\"requestedChildId\":";
+            if(request.mode==client::Mode::ResumeChild)out<<request.target;else out<<"null";
+            out<<",\"resumedExistingChild\":"<<((observed&&request.mode==client::Mode::ResumeChild)?"true":"false");
             out<<",\"connectedEvent\":"<<(connected?"true":"false")
                <<",\"loginCompleteEvent\":"<<(loggedIn?"true":"false")
                <<",\"observedChildSession\":"<<(observed?"true":"false")<<",\"observedChildId\":";
@@ -51,6 +59,12 @@ struct App {
             return true;
         }catch(...){journalFailed=true;return false;}
     }
+    void RecordEvent(DISPID id,const DISPPARAMS* args)noexcept {
+        try {
+            if(!Append(receipt,diagnostics::JsonEvent(id,args,GetTickCount64()-diagnosticEpoch)).succeeded)
+                journalFailed=true;
+        }catch(...){journalFailed=true;}
+    }
     void Status(const wchar_t* text)noexcept {
         wcsncpy_s(status,text,_TRUNCATE);if(window)InvalidateRect(window,nullptr,TRUE);
     }
@@ -66,6 +80,7 @@ struct App {
     }
     static void Event(void* context,DISPID id,DISPPARAMS* args)noexcept {
         auto& app=*static_cast<App*>(context);LONG value=0;bool present=false;
+        app.RecordEvent(id,args);
         if(args&&args->cArgs>=1&&args->rgvarg) {
             if(args->rgvarg[0].vt==VT_I4){value=args->rgvarg[0].lVal;present=true;}
             else if(args->rgvarg[0].vt==VT_I2){value=args->rgvarg[0].iVal;present=true;}
@@ -105,6 +120,11 @@ struct App {
         if(FAILED(hr=Step("QueryDispatch",object->QueryInterface(IID_IDispatch,reinterpret_cast<void**>(dispatch.put())))))return hr;
         if(FAILED(hr=Step("QueryExtendedSettings",object->QueryInterface(__uuidof(ExtendedSettings),reinterpret_cast<void**>(extended.put())))))return hr;
         if(FAILED(hr=Step("ChildPropertySetAndVerified",VerifyChildProperty(true))))return hr;
+        // Before connection, ignore server-generated pointer-position updates.
+        // This does not disable keyboard or mouse input inside the child.
+        // https://learn.microsoft.com/windows/win32/termserv/imsrdpextendedsettings-property
+        if(FAILED(hr=Step("IgnoreServerMouseMovesSetAndVerified",
+            VerifyExtendedTrue(extended.value,L"IgnoreServerGeneratedMouseMoves",true))))return hr;
         // Server is required by Connect. The checked child property redirects it
         // to the local child transport. No executable argument accepts a server.
         if(FAILED(hr=Step("ServerLocalhost",PutText(dispatch.value,L"Server",L"localhost"))))return hr;
@@ -138,9 +158,12 @@ struct App {
         return Step("SetObjectRects",inplace->SetObjectRects(&area,&area));
     }
     bool EnableAndConnect() {
-        const auto current=Query(SystemApi());const auto currentInventory=ReadInventory(baseline.caller.value);
-        if(!AcceptBaseline(current)||!currentInventory.valid||current.caller.value!=baseline.caller.value||
-           current.console.value!=baseline.console.value) {
+        const auto current=Query(SystemApi());
+        const auto currentInventory=ReadInventory(baseline.caller.value,request.target);
+        if(!client::AcceptSnapshot(request,current)||
+           !client::AcceptInventory(request,baseline.caller.value,currentInventory.valid,
+                currentInventory.rows.data(),currentInventory.rows.size())||
+           current.caller.value!=baseline.caller.value||current.console.value!=baseline.console.value) {
             Step("pre-enable-guard",HRESULT_FROM_WIN32(ERROR_BUSY));return false;
         }
         if(!Record("enable-intent"))return false;
@@ -154,8 +177,17 @@ struct App {
             return false;
         }
         if(FAILED(Step("enable-readback",S_OK))||FAILED(Step("pre-connect-child-property",VerifyChildProperty(false)))||
-           !Record("connect-intent"))return false;
-        if(stopRequested)return false;
+           FAILED(Step("pre-connect-ignore-server-mouse",
+                VerifyExtendedTrue(extended.value,L"IgnoreServerGeneratedMouseMoves",false))))return false;
+        const auto beforeConnect=Query(SystemApi());
+        const auto connectInventory=ReadInventory(baseline.caller.value,request.target);
+        if(!client::AcceptSnapshot(request,beforeConnect,true)||
+           !client::AcceptInventory(request,baseline.caller.value,connectInventory.valid,
+                connectInventory.rows.data(),connectInventory.rows.size())||
+           beforeConnect.caller.value!=baseline.caller.value||beforeConnect.console.value!=baseline.console.value) {
+            Step("pre-connect-session-relation",E_ACCESSDENIED);return false;
+        }
+        if(!Record("connect-intent")||stopRequested)return false;
         start=GetTickCount64();
         const auto connection=ConnectChildOnly(extended.value,dispatch.value,true,true,&stopRequested);
         connectAttempted=connection.attempted;
@@ -165,7 +197,7 @@ struct App {
         return true;
     }
     bool NewActiveChild(ULONG id)noexcept {
-        for(const auto& row:inventory.rows)if(row.id==id)return false;
+        if(!client::AcceptObservedId(request,baseline.caller.value,id,inventory.rows.data(),inventory.rows.size()))return false;
         PWTS_SESSION_INFOW rows=nullptr;DWORD count=0;
         if(!WTSEnumerateSessionsW(WTS_CURRENT_SERVER_HANDLE,0,1,&rows,&count))return false;
         bool found=false;
@@ -183,8 +215,10 @@ struct App {
         }
         if(!connectAttempted)return;
         LONG state=-1;HRESULT connectedResult=E_PENDING;
-        if(connected&&loggedIn&&!observed) {
+        if(!observed) {
             ++outboundDepth;connectedResult=GetNumber(dispatch.value,L"Connected",state);--outboundDepth;
+            if(connectionObservation.Changed(connectedResult,state))
+                Record("ConnectedState",connectedResult,state,SUCCEEDED(connectedResult));
         }
         if(stopRequested){BeginStop(failureStage,failure);return;}
         if(connected&&loggedIn&&SUCCEEDED(connectedResult)&&state==1&&!observed) {
@@ -192,8 +226,14 @@ struct App {
             if(current.child.succeeded&&current.child.value!=MAXDWORD&&current.child.value!=baseline.caller.value&&
                current.caller.succeeded&&current.caller.value==baseline.caller.value&&
                current.console.value==baseline.console.value&&NewActiveChild(current.child.value)) {
-                observed=true;observedId=current.child.value;Record("active-child-observed",S_OK,static_cast<LONG>(observedId),true);
-                Status(L"Child session experiment - native child session observed. Windowed access; no physical isolation.");
+                observed=true;observedId=current.child.value;
+                if(request.mode==client::Mode::ResumeChild) {
+                    Record("existing-child-resumed",S_OK,static_cast<LONG>(observedId),true);
+                    Status(L"Child session experiment - existing child session resumed. No new session or physical isolation claimed.");
+                }else {
+                    Record("active-child-observed",S_OK,static_cast<LONG>(observedId),true);
+                    Status(L"Child session experiment - native child session observed. Windowed access; no physical isolation.");
+                }
             }
         }
         if(journalFailed){BeginStop("receipt-write",HRESULT_FROM_WIN32(ERROR_WRITE_FAULT));return;}
@@ -238,7 +278,9 @@ struct App {
         finalBaselineRestored=baselineRestored;
         try {
             std::ostringstream out;out<<"{\"schema\":\"retsar.child-session-client-final.v1\","
-                <<"\"observedChildSession\":"<<(observed?"true":"false")
+                <<"\"connectionMode\":\""<<client::ModeName(request.mode)<<"\","
+                <<"\"resumedExistingChild\":"<<((observed&&request.mode==client::Mode::ResumeChild)?"true":"false")
+                <<",\"observedChildSession\":"<<(observed?"true":"false")
                 <<",\"restoreAttempted\":"<<(restoreAttempted?"true":"false")
                 <<",\"baselineRestored\":"<<(baselineRestored?"true":"false")
                 <<",\"failureStage\":\""<<failureStage<<"\",\"failureHresult\":"<<static_cast<ULONG>(failure)
@@ -255,6 +297,9 @@ struct App {
             swprintf_s(status,L"Child session experiment stopped. HRESULT 0x%08lX. Original setting restored; review private receipt.",static_cast<ULONG>(failure));
             if(window)InvalidateRect(window,nullptr,TRUE);
         }
+        // Destruction is queued outside the COM cleanup stack. User-requested
+        // close needs one click; automatic connection failure can show results.
+        if(userCloseRequested&&window)PostMessageW(window,WM_CLOSE,0,0);
     }
 };
 
@@ -290,7 +335,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
         case StopMessage:app->BeginStop(app->failureStage,app->failure);return 0;
         case WM_CLOSE:
             if(app->finished){DestroyWindow(window);return 0;}
-            app->BeginStop("user-close",S_OK);return 0;
+            app->userCloseRequested=true;app->BeginStop("user-close",S_OK);return 0;
         case WM_DESTROY:
             app->Cleanup();app->window=nullptr;PostQuitMessage(0);return 0;
         }
@@ -325,27 +370,32 @@ int wmain(int argc,wchar_t* argv[]) {
     if(argc==1||(argc==2&&std::wcscmp(argv[1],L"--help")==0)) {
         std::cout<<"RETSAR Child session experiment\n"
             <<"Usage: RETSAR-child-session-client.exe --connect-child --receipt <new.jsonl>\n"
+            <<"       RETSAR-child-session-client.exe --resume-child-session <id> --receipt <new.jsonl>\n"
             <<"Explicit mode hosts one local Remote Desktop ActiveX child session.\n"
             <<"Receipt must be new under D:\\RETSAR-Lab\\RETSAR\\private\\.\n"
             <<"Connection deadline: 60 seconds. An observed connection stays open until closed.\n"
             <<"Closing disconnects only this client and restores the original disabled setting.\n"
+            <<"Resume requires an exact existing disconnected child; it never claims new creation.\n"
             <<"Remaining child IDs are reported, never logged off automatically.\n"
             <<"No ordinary RDP fallback, credentials, fullscreen or physical device assignment.\n"
             <<"Help makes no COM, WTS, window or setting changes.\n";return 0;
     }
-    if(argc!=4||std::wcscmp(argv[1],L"--connect-child")!=0||std::wcscmp(argv[2],L"--receipt")!=0) {
+    client::Request request{};const wchar_t* receiptArgument=nullptr;
+    if(!client::ParseModeArgs(argc,argv,request,receiptArgument)) {
         std::cerr<<"Invalid arguments; no session queries or changes.\n";return 64;
     }
     try {
         std::wstring path;
-        if(!ValidReceiptPath(argv[3],path)){std::cerr<<"Receipt path rejected.\n";return 64;}
+        if(!ValidReceiptPath(receiptArgument,path)){std::cerr<<"Receipt path rejected.\n";return 64;}
         Handle mutex;mutex.value=CreateMutexW(nullptr,TRUE,L"Local\\RETSAR.ChildSessionToggle");
         const DWORD mutexError=GetLastError();
         if(!mutex.value||mutexError==ERROR_ALREADY_EXISTS){if(!mutex.value)mutex.value=INVALID_HANDLE_VALUE;return 3;}
         const auto baseline=Query(SystemApi());
-        if(!AcceptBaseline(baseline)){std::cout<<ToJson(baseline)<<'\n';return 3;}
-        const auto inventory=ReadInventory(baseline.caller.value);
-        if(!inventory.valid){std::cout<<InventoryJson(inventory)<<'\n';return 3;}
+        if(!client::AcceptSnapshot(request,baseline)){std::cout<<ToJson(baseline)<<'\n';return 3;}
+        const auto inventory=ReadInventory(baseline.caller.value,request.target);
+        if(!client::AcceptInventory(request,baseline.caller.value,inventory.valid,inventory.rows.data(),inventory.rows.size())) {
+            std::cout<<InventoryJson(inventory)<<'\n';return 3;
+        }
         Handle receipt;
         receipt.value=CreateFileW(path.c_str(),GENERIC_WRITE,FILE_SHARE_READ,nullptr,CREATE_NEW,
             FILE_ATTRIBUTE_NORMAL|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
@@ -359,6 +409,8 @@ int wmain(int argc,wchar_t* argv[]) {
            !finalSize||finalSize>=std::size(finalPath)||_wcsicmp(finalPath,expected.c_str())!=0)return 4;
         std::ostringstream initial;initial<<"{\"schema\":\"retsar.child-session-client-owner.v1\",";
         if(!TokenIdentity(initial))return 4;
+        initial<<",\"connectionMode\":\""<<client::ModeName(request.mode)<<"\",\"requestedChildId\":";
+        if(request.mode==client::Mode::ResumeChild)initial<<request.target;else initial<<"null";
         initial<<",\"baseline\":"<<ToJson(baseline)<<",\"inventory\":"<<InventoryJson(inventory)
             <<",\"childAbsenceProven\":"<<(ClassifyChild(baseline)==ChildState::Absent?"true":"false")
             <<",\"connectionDeadlineMs\":"<<ConnectionDeadlineMs<<",\"physicalSeatVerified\":false}";
@@ -366,7 +418,9 @@ int wmain(int argc,wchar_t* argv[]) {
         const HRESULT initialized=OleInitialize(nullptr);
         if(FAILED(initialized)){std::cerr<<"OLE initialization failed.\n";return 5;}
         struct OleLifetime{~OleLifetime(){OleUninitialize();}} oleLifetime;
-        App app;app.receipt=receipt.value;app.baseline=baseline;app.inventory=inventory;
+        App app;app.receipt=receipt.value;app.baseline=baseline;app.inventory=inventory;app.request=request;
+        if(request.mode==client::Mode::ResumeChild)
+            app.Status(L"Preparing to resume the verified existing child session. No new session is being requested.");
         WNDCLASSEXW definition{sizeof(definition)};
         definition.lpfnWndProc=WindowProc;definition.hInstance=GetModuleHandleW(nullptr);
         definition.hCursor=LoadCursorW(nullptr,IDC_ARROW);definition.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);

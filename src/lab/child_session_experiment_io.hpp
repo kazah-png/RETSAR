@@ -17,7 +17,7 @@ struct Handle {
 struct SessionRow {DWORD id=MAXDWORD;int state=0;bool hasUser=false;};
 struct Inventory {bool valid=false;DWORD error=ERROR_SUCCESS;std::vector<SessionRow> rows;};
 
-Inventory ReadInventory(DWORD caller) {
+Inventory ReadInventory(DWORD caller,DWORD resumeTarget=MAXDWORD) {
     Inventory result{};
     PWTS_SESSION_INFOW sessions=nullptr;
     DWORD count=0;
@@ -29,7 +29,7 @@ Inventory ReadInventory(DWORD caller) {
         ~SessionMemory(){if(value)WTSFreeMemory(value);}
     } memory{sessions};
     if(count==0||count>1024||!sessions){result.error=ERROR_INVALID_DATA;return result;}
-    bool callerSeen=false;
+    bool callerSeen=false,targetSeen=false;
     for(DWORD index=0;index<count;++index) {
         const auto& entry=sessions[index];
         LPWSTR user=nullptr;DWORD bytes=0;
@@ -52,11 +52,16 @@ Inventory ReadInventory(DWORD caller) {
                 result.error=ERROR_INVALID_STATE;return result;
             }
             callerSeen=true;
+        } else if(resumeTarget!=MAXDWORD&&entry.SessionId==resumeTarget) {
+            if(targetSeen||entry.State!=WTSDisconnected||!hasUser) {
+                result.error=ERROR_INVALID_STATE;return result;
+            }
+            targetSeen=true;
         } else if(hasUser) {
             result.error=ERROR_BUSY;return result;
         }
     }
-    if(!callerSeen){result.error=ERROR_NOT_FOUND;return result;}
+    if(!callerSeen||(resumeTarget!=MAXDWORD&&!targetSeen)){result.error=ERROR_NOT_FOUND;return result;}
     result.valid=true;
     return result;
 }

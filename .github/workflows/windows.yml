@@ -107,7 +107,7 @@ jobs:
             $ciLog = Join-Path $env:RETSAR_CI_ROOT 'reports\ci-build-and-tests.log'
             if (Test-Path -LiteralPath $ciLog) {
               Get-Content -LiteralPath $ciLog |
-                Where-Object { $_ -match '^(TOTAL |CLI TOTAL |PROBE TOTAL |MOCK RDS TOTAL |Laboratory control protocol: |Laboratory worker: |INERT remote display contract: |Child session toggle: |Child session client gate: |PASS [0-9]+ offline licensing framing checks|PASS [0-9]+ child-session diagnostic checks|OBSERVER TOTAL |RDP REFERENCE TOTAL |ACTIVATION TOTAL |BOOT TRACE TOTAL |SKIP |PASS JSON|Ran [0-9]+ tests|OK$)' } |
+                Where-Object { $_ -match '^(TOTAL |CLI TOTAL |PROBE TOTAL |MOCK RDS TOTAL |Laboratory control protocol: |Laboratory worker: |INERT remote display contract: |Child session toggle: |Child session client gate: |Child session input contract: |Child session client mode: |Child session client diagnostics: |PASS [0-9]+ offline licensing framing checks|PASS [0-9]+ child-session diagnostic checks|OBSERVER TOTAL |RDP REFERENCE TOTAL |ACTIVATION TOTAL |BOOT TRACE TOTAL |SKIP |PASS JSON|Ran [0-9]+ tests|OK$)' } |
                 ForEach-Object { '- ' + $_ } |
                 Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
             }

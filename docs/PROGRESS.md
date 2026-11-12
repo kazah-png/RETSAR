@@ -2,7 +2,17 @@
 
 Progress is organized by capability and evidence. A compiled component, simulated transaction or existing session ID is not recorded as an operational native seat.
 
+## Child resumption and input diagnosis
+
+The native child desktop was disconnected and later resumed as the same Windows session after the user completed Windows identity confirmation. The parent remained active. This establishes creation and interactive resumption on the observed host, while unattended authentication, owned-session logoff, physical device assignment and a production lifecycle remain open. [Observed client results](CHILD-SESSIONS.md).
+
+A fixed, nonce-correlated Task Scheduler action reached the active child and rendered its own test window. A diagnostic mouse movement reached that window, while its 64-bit input marker arrived with only the low 32 bits. The strict probe rejected that mismatch and sent no F24 pair; its own cursor was restored and its temporary task was removed. A repeat observation recorded no cursor or foreground change in 493 parent samples. The corrected positive 31-bit tag then passed exact mouse and F24 down/up receipt, with cursor restoration, a zero task result, task removal and 39 unchanged parent samples. This is bounded synthetic session-input evidence, not physical keyboard/mouse exclusivity. [Input experiment and limitations](CHILD-SESSION-INPUT.md).
+
+The combined local checks for this increment passed **1,451 C++/CLI checks**: the optional build covered the child and bridge contracts; the lifecycle and CLI suites were completed separately using a small C: test fixture because their existing file policy rejects a D: fixture. No adversarial branch was skipped. Build products and private reports stayed on D:. These local results are separate from the previously verified public CI run below.
+
 ## Native child desktop and remote-display preparation
+
+The [child-client CI run](https://github.com/kazah-png/RETSAR/actions/runs/43295046562/job/131450985228) at [`95f4ad1`](https://github.com/kazah-png/RETSAR/commit/95f4ad16eeefadd229c902b7b47decdfaf6b645b) passed **1,242 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. Live child-desktop observations below are separate from these inert checks.
 
 The [preparation CI run](https://github.com/kazah-png/RETSAR/actions/runs/43291934940/job/131440125569) at [`1ef0a47`](https://github.com/kazah-png/RETSAR/commit/1ef0a475eaf803436373c6bd868faac465753347) passed **1,204 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. The remote driver was separately compiled and validated locally; this workflow does not install or execute it.
 

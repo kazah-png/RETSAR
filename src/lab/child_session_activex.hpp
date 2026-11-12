@@ -67,9 +67,9 @@ inline HRESULT GetNumber(IDispatch* object,const wchar_t* name,LONG& value)noexc
     else return DISP_E_TYPEMISMATCH;
     return S_OK;
 }
-inline HRESULT VerifyChildMode(ExtendedSettings* settings,bool write)noexcept {
-    if(!settings)return E_POINTER;
-    BSTR name=SysAllocString(L"ConnectToChildSession");
+inline HRESULT VerifyExtendedTrue(ExtendedSettings* settings,const wchar_t* property,bool write)noexcept {
+    if(!settings||!property)return E_POINTER;
+    BSTR name=SysAllocString(property);
     if(!name)return E_OUTOFMEMORY;
     VARIANT requested{};requested.vt=VT_BOOL;requested.boolVal=VARIANT_TRUE;
     HRESULT hr=write?settings->put_Property(name,&requested):S_OK;
@@ -78,6 +78,9 @@ inline HRESULT VerifyChildMode(ExtendedSettings* settings,bool write)noexcept {
         if(SUCCEEDED(hr)&&(read.value.vt!=VT_BOOL||read.value.boolVal!=VARIANT_TRUE))hr=E_UNEXPECTED;
     }
     SysFreeString(name);return hr;
+}
+inline HRESULT VerifyChildMode(ExtendedSettings* settings,bool write)noexcept {
+    return VerifyExtendedTrue(settings,L"ConnectToChildSession",write);
 }
 struct ConnectResult {HRESULT propertyResult=E_PENDING,connectResult=E_PENDING;bool attempted=false;};
 inline ConnectResult ConnectChildOnly(ExtendedSettings* settings,IDispatch* client,

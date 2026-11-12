@@ -18,6 +18,7 @@ public:
     VARIANT_BOOL readValue=VARIANT_TRUE;
     unsigned reads=0,writes=0;
     bool validWrite=false,validName=true;
+    const wchar_t* expectedName=L"ConnectToChildSession";
     bool* cancelDuringRead=nullptr;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** out)override{
         if(!out)return E_POINTER;*out=nullptr;
@@ -27,12 +28,12 @@ public:
     ULONG STDMETHODCALLTYPE AddRef()override{return ++refs_;}
     ULONG STDMETHODCALLTYPE Release()override{return --refs_;}
     HRESULT STDMETHODCALLTYPE put_Property(BSTR name,VARIANT* value)override{
-        ++writes;validName=validName&&name&&std::wcscmp(name,L"ConnectToChildSession")==0;
+        ++writes;validName=validName&&name&&std::wcscmp(name,expectedName)==0;
         validWrite=value&&value->vt==VT_BOOL&&value->boolVal==VARIANT_TRUE;
         return writeResult;
     }
     HRESULT STDMETHODCALLTYPE get_Property(BSTR name,VARIANT* out)override{
-        ++reads;validName=validName&&name&&std::wcscmp(name,L"ConnectToChildSession")==0;
+        ++reads;validName=validName&&name&&std::wcscmp(name,expectedName)==0;
         if(cancelDuringRead)*cancelDuringRead=true;
         if(!out)return E_POINTER;VariantInit(out);
         if(FAILED(readResult))return readResult;
@@ -111,6 +112,34 @@ void verifyTests(){
     }
 }
 
+void mousePositionPolicyTests(){
+    constexpr auto name=L"IgnoreServerGeneratedMouseMoves";
+    {
+        FakeSettings settings;settings.expectedName=name;
+        check(VerifyExtendedTrue(&settings,name,true)==S_OK&&settings.validName&&settings.validWrite&&
+              settings.writes==1&&settings.reads==1,"server mouse update policy uses exact property and VT_BOOL true");
+    }
+    {
+        FakeSettings settings;settings.expectedName=name;settings.writeResult=E_INVALIDARG;
+        check(VerifyExtendedTrue(&settings,name,true)==E_INVALIDARG&&settings.reads==0,
+              "unsupported mouse update policy preserves failure and cannot be rescued by readback");
+    }
+    {
+        FakeSettings settings;settings.expectedName=name;settings.readResult=E_ACCESSDENIED;
+        check(VerifyExtendedTrue(&settings,name,true)==E_ACCESSDENIED,
+              "failed mouse update policy readback remains a failure");
+    }
+    for(const auto type:{VT_I4,VT_BSTR,VT_EMPTY}){
+        FakeSettings settings;settings.expectedName=name;settings.readType=static_cast<VARTYPE>(type);
+        check(FAILED(VerifyExtendedTrue(&settings,name,false))&&settings.writes==0&&settings.validName,
+              "mouse update policy verification does not coerce a foreign type");
+    }
+    {
+        FakeSettings settings;settings.expectedName=name;settings.readValue=VARIANT_FALSE;
+        check(FAILED(VerifyExtendedTrue(&settings,name,false)),"false mouse update policy cannot admit connection");
+    }
+}
+
 void connectionTests(){
     for(const auto flags:{0u,1u,2u}){
         FakeSettings settings;FakeClient client;
@@ -186,7 +215,7 @@ void connectionTests(){
 }
 }
 int main(){
-    verifyTests();connectionTests();
+    verifyTests();mousePositionPolicyTests();connectionTests();
     std::cout<<"Child session client gate: "<<passed<<" passed, "<<failed<<" failed; fake interfaces only, no ActiveX activation or Windows session action.\n";
     return failed?1:0;
 }

@@ -20,7 +20,7 @@ A completed foundation does not amount to a functional seat. The next milestone 
 
 ## P0 · Demonstrate a native seat in an independent laboratory
 
-- [ ] Identify and document a viable mechanism to create a new interactive session.
+- [x] Identify and document native child-session creation on the tested Core host, with the parent still active. Physical assignment and lifecycle acceptance remain separate.
 - [ ] Demonstrate its identity and lifecycle without relying on a session already created by another product.
 - [ ] Assign an independent physical output and input without taking over existing resources.
 - [ ] Remove only the experiment's resources, including after intermediate failures.
@@ -28,7 +28,7 @@ A completed foundation does not amount to a functional seat. The next milestone 
 
 **Acceptance criterion:** an isolated experiment creates and removes a real second seat, preserves the first, and proves which run owns each resource. Launching a process in another session or displaying a captured image does not satisfy this criterion.
 
-The [native backend investigation](NATIVE-BACKEND.md) separates protocol research from this physical-seat requirement.
+The [native backend investigation](NATIVE-BACKEND.md) separates protocol research from this physical-seat requirement. The [observed child desktop](CHILD-SESSIONS.md) establishes one logical-session mechanism on the tested host; it does not complete P0.
 
 ## P1 · Integrate the Windows provider
 
