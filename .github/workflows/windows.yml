@@ -67,6 +67,20 @@ jobs:
           python -B -m unittest discover -s (Join-Path $env:RETSAR_CI_ROOT 'lab') -p test_supervise_qemu.py -v 2>&1 | Tee-Object -FilePath $ciLog -Append
           if ($LASTEXITCODE -ne 0) { throw "Laboratory unit tests failed: $LASTEXITCODE" }
 
+      - name: Parse guest scripts without executing them
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Parsing never invokes guest gates, Windows APIs, accounts or sessions.
+          $scripts = @(Get-ChildItem -LiteralPath (Join-Path $env:RETSAR_CI_ROOT 'lab') -Filter 'guest-*.ps1' -File)
+          if ($scripts.Count -eq 0) { throw 'No guest scripts found.' }
+          foreach ($script in $scripts) {
+            $tokens = $null
+            $parseErrors = $null
+            [Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors.Count -ne 0) { throw "Guest script syntax failed: $($script.Name)" }
+            Write-Output "PARSE ONLY $($script.Name); not executed."
+          }
+
       - name: Summarize observed results
         if: always()
         run: |

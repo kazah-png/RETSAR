@@ -39,7 +39,7 @@ try {
  if($LASTEXITCODE -ne 0){throw 'RETSAR compilation failed.'}
  if($Lab){
   New-Item -ItemType Directory -Force -Path "$base\dist\lab" | Out-Null
-  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\src\lab\seat_probe.cpp" "/Fe:$base\dist\lab\RETSAR-seat-probe.exe" /link /SUBSYSTEM:CONSOLE /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\app.manifest" @libs user32.lib gdi32.lib
+  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\src\lab\seat_probe.cpp" "/Fe:$base\dist\lab\RETSAR-seat-probe.exe" /link /SUBSYSTEM:CONSOLE /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\app.manifest" @libs user32.lib gdi32.lib advapi32.lib
   if($LASTEXITCODE -ne 0){throw 'Laboratory probe compilation failed.'}
   # Help is intentionally the only probe mode executed by the build.
   & "$base\dist\lab\RETSAR-seat-probe.exe" --help

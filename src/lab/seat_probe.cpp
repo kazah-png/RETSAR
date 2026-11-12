@@ -1,11 +1,14 @@
 #include "probe_args.hpp"
 #include "../json.hpp"
 #include "../safe_c_path.hpp"
+#include <sddl.h>
 #include <d3d11.h>
 #include <dxgi1_2.h>
 #include <chrono>
+#include <cstddef>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <sstream>
 
 namespace {
@@ -39,6 +42,71 @@ std::string utf8(const std::wstring& value){
 }
 std::string hex32(uint32_t value){std::ostringstream out;out<<"0x"<<std::hex<<std::uppercase<<std::setw(8)<<std::setfill('0')<<value;return out.str();}
 std::wstring wideAscii(const std::string& value){return {value.begin(),value.end()};}
+
+struct CloseToken {void operator()(void* value)const noexcept{if(value)CloseHandle(value);}};
+struct FreeSidText {void operator()(wchar_t* value)const noexcept{if(value)LocalFree(value);}};
+struct ProcessIdentity {
+    DWORD processId=0,tokenOpenError=0,userSidError=0,authenticationIdError=0,creationTimeError=0;
+    std::optional<std::string> userSid;
+    std::optional<LUID> authenticationId;
+    std::optional<int64_t> creationTime;
+};
+DWORD lastErrorOrInvalidData(){const auto error=GetLastError();return error?error:ERROR_INVALID_DATA;}
+void observeTokenUser(HANDLE token,ProcessIdentity& out){
+    DWORD needed=0;
+    const BOOL sized=GetTokenInformation(token,TokenUser,nullptr,0,&needed);
+    const DWORD sizeError=sized?ERROR_INVALID_DATA:GetLastError();
+    if(sizeError!=ERROR_INSUFFICIENT_BUFFER){out.userSidError=sizeError?sizeError:ERROR_INVALID_DATA;return;}
+    if(needed<sizeof(TOKEN_USER)||needed>65536){out.userSidError=ERROR_INVALID_DATA;return;}
+    std::vector<BYTE> buffer(needed);
+    if(!GetTokenInformation(token,TokenUser,buffer.data(),static_cast<DWORD>(buffer.size()),&needed)){
+        out.userSidError=lastErrorOrInvalidData();return;
+    }
+    if(needed<sizeof(TOKEN_USER)||needed>buffer.size()){out.userSidError=ERROR_INVALID_DATA;return;}
+    TOKEN_USER user{};std::memcpy(&user,buffer.data(),sizeof(user));
+    // TOKEN_USER contains a pointer to the variable-sized SID within this buffer.
+    const auto begin=reinterpret_cast<uintptr_t>(buffer.data());
+    const auto sidAddress=reinterpret_cast<uintptr_t>(user.User.Sid);
+    constexpr size_t sidHeaderBytes=offsetof(SID,SubAuthority);
+    if(sidAddress<begin||sidAddress-begin>needed||needed-(sidAddress-begin)<sidHeaderBytes){
+        out.userSidError=ERROR_INVALID_SID;return;
+    }
+    SID sidHeader{};std::memcpy(&sidHeader,user.User.Sid,sidHeaderBytes);
+    if(GetSidLengthRequired(sidHeader.SubAuthorityCount)>needed-(sidAddress-begin)||!IsValidSid(user.User.Sid)){
+        out.userSidError=ERROR_INVALID_SID;return;
+    }
+    LPWSTR sidText=nullptr;
+    if(!ConvertSidToStringSidW(user.User.Sid,&sidText)){out.userSidError=lastErrorOrInvalidData();return;}
+    const std::unique_ptr<wchar_t,FreeSidText> ownedSidText(sidText);
+    if(!sidText){out.userSidError=ERROR_INVALID_DATA;return;}
+    out.userSid=utf8(sidText);
+}
+ProcessIdentity observeOwnProcessIdentity(){
+    ProcessIdentity out;out.processId=GetCurrentProcessId();
+    // This pseudo-handle and token are only for the process running this probe.
+    const HANDLE process=GetCurrentProcess();
+    FILETIME created{},exited{},kernel{},user{};
+    if(!GetProcessTimes(process,&created,&exited,&kernel,&user))out.creationTimeError=lastErrorOrInvalidData();
+    else{
+        const uint64_t ticks=(static_cast<uint64_t>(created.dwHighDateTime)<<32)|created.dwLowDateTime;
+        if(!ticks)out.creationTimeError=ERROR_INVALID_DATA;
+        else if(ticks>CounterLimit)out.creationTimeError=ERROR_ARITHMETIC_OVERFLOW;
+        else out.creationTime=static_cast<int64_t>(ticks);
+    }
+    HANDLE token=nullptr;
+    if(!OpenProcessToken(process,TOKEN_QUERY,&token)){
+        out.tokenOpenError=lastErrorOrInvalidData();
+        out.userSidError=out.tokenOpenError;out.authenticationIdError=out.tokenOpenError;return out;
+    }
+    const std::unique_ptr<void,CloseToken> ownedToken(token);
+    observeTokenUser(token,out);
+    TOKEN_STATISTICS statistics{};DWORD returned=0;
+    if(!GetTokenInformation(token,TokenStatistics,&statistics,sizeof(statistics),&returned))
+        out.authenticationIdError=lastErrorOrInvalidData();
+    else if(returned!=sizeof(statistics))out.authenticationIdError=ERROR_INVALID_DATA;
+    else out.authenticationId=statistics.AuthenticationId;
+    return out;
+}
 
 struct ObjectName {
     std::wstring value;
@@ -95,6 +163,7 @@ void observeGraphics(GraphicsObservation& graphics){
 struct ProbeState {
     seats::lab::ProbeOptions options;
     DWORD actualSession=0;
+    ProcessIdentity processIdentity;
     ObjectName station,desktop;
     GraphicsObservation graphics;
     uint64_t mouseMoves=0,mouseButtons=0,mouseWheels=0,keyDowns=0,refreshes=0;
@@ -157,6 +226,23 @@ LRESULT CALLBACK windowProcedure(HWND window,UINT message,WPARAM wparam,LPARAM l
 }
 
 seats::Json objectJson(const ObjectName& value){return seats::Json::Object{{"name",utf8(value.value)},{"win32Error",value.error}};}
+seats::Json identityJson(const ProcessIdentity& value){
+    seats::Json authenticationId;
+    if(value.authenticationId){
+        const auto luid=*value.authenticationId;
+        authenticationId=seats::Json::Object{{"highPart",luid.HighPart},{"lowPart",luid.LowPart},
+            {"hex",hex32(static_cast<uint32_t>(luid.HighPart))+hex32(luid.LowPart).substr(2)}};
+    }
+    return seats::Json::Object{{"scope","own process only"},{"processId",value.processId},
+        {"userSid",value.userSid?seats::Json(*value.userSid):seats::Json()},
+        {"authenticationId",std::move(authenticationId)},
+        {"processCreationTimeFileTime",value.creationTime?seats::Json(*value.creationTime):seats::Json()},
+        {"creationTimeUnit","100-nanosecond intervals since 1601-01-01 UTC"},
+        {"identityEvidenceComplete",value.userSid.has_value()&&value.authenticationId.has_value()&&value.creationTime.has_value()},
+        {"ownershipProven",false},
+        {"win32Errors",seats::Json::Object{{"openProcessToken",value.tokenOpenError},{"tokenUser",value.userSidError},
+            {"tokenStatistics",value.authenticationIdError},{"getProcessTimes",value.creationTimeError}}}};
+}
 seats::Json report(const ProbeState& state){
     const auto& graphics=state.graphics;
     const auto elapsed=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-state.started).count();
@@ -165,6 +251,7 @@ seats::Json report(const ProbeState& state){
         {"scope","current process session and own window only"},{"sessionGatePassed",true},
         {"actualSession",state.actualSession},{"expectedSession",state.options.expectedSession},
         {"referenceSession",state.options.referenceSession},{"referenceSessionObserved",false},
+        {"processIdentity",identityJson(state.processIdentity)},
         {"windowStation",objectJson(state.station)},{"desktop",objectJson(state.desktop)},
         {"graphics",seats::Json::Object{
             {"requestedDriver","HARDWARE"},{"deviceCreationHresult",hex32(static_cast<uint32_t>(graphics.deviceResult))},
@@ -205,6 +292,7 @@ int interactive(const seats::lab::ProbeOptions& options){
         return 2;
     }
     ProbeState state;state.options=options;state.actualSession=current;state.started=std::chrono::steady_clock::now();
+    state.processIdentity=observeOwnProcessIdentity();
     state.station=objectName(GetProcessWindowStation());state.desktop=objectName(GetThreadDesktop(GetCurrentThreadId()));
     observeGraphics(state.graphics);
     const HINSTANCE instance=GetModuleHandleW(nullptr);

@@ -38,7 +38,8 @@ The goal is two independent seats on one computer, with explicit resource assign
 | Separate laboratory seat probe | Compiled; pure argument/gate tests and help verified |
 | Optional RDS SDK bridge | Compiled; in-process mock callback contracts tested; not connected to RDS |
 | Isolated laboratory supervisor | Fake-API tests and local owned-process termination checks passed |
-| Windows Server laboratory guest | Setup failure diagnosed; answer-template command corrected; fresh installation pending |
+| Windows Server laboratory guest | Corrected installation running from a private laboratory on D:; installation completion and RDS readiness unverified |
+| Server reference observation tools | Prepared; syntax/layout checks passed; guest connection not executed |
 | Creation of a real Windows seat | **Not implemented** |
 | Independent physical display and keyboard/mouse | **Not implemented** |
 | Service, drivers and management interface | Pending |
@@ -83,13 +84,15 @@ A separate probe is available to collect evidence inside a candidate session. Co
 
 The build runs only the probe's help and pure tests. Interactive mode requires explicit candidate and reference session IDs. **Interactive mode has not been tested in a laboratory seat.** The probe neither creates sessions nor proves independence by observing an ID. See its [contract and scope](docs/NATIVE-BACKEND.md#c-laboratory-instrument).
 
+The [guest session observer](lab/SESSION-OBSERVATION.md) and [guest-local RDP reference](lab/RDP-REFERENCE.md) prepare a controlled Server experiment. They are separate guest-only tools, not a native-seat backend. The probe's expanded own-process identity report has compiled but remains unverified in a live session.
+
 ## Verification and limits
 
 The latest local run passed **242 C++/CLI checks**, including **125 mock checks** for the optional [SDK bridge](docs/RDS-BRIDGE.md). One adversarial junction branch was not exercised because Windows denied its setup; it is not counted as passed. The supervisor and answer template passed **28 separate inert Python tests**. The bridge now accepts the SDK's optional null settings-interface pointer while preserving reference ownership and rejecting a null required settings structure. This fixes a contract error; it does not complete service initialization.
 
-The last verified [public Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/42802709727/job/129784014483) passed **227 C++/CLI checks and 16 separate Python tests**, with no failures or skipped checks, at the earlier commit [`b4eb74e`](https://github.com/kazah-png/RETSAR/commit/b4eb74e08ae9a28d8d5ef668c9567cdb583c9479). **CI for the new changes is pending.** Two additional local [supervisor](lab/README.md) checks terminated only newly created sleeping helper processes; those native process checks were not run in CI. The [progress record](docs/PROGRESS.md) separates these revisions and scopes.
+The current [public Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43235098189/job/131240241066) passed **243 C++/CLI checks and 28 separate Python tests**, with no failures or skipped checks, at commit [`e2a0548`](https://github.com/kazah-png/RETSAR/commit/e2a054872c79b24e2cef739c3b8b892ef6ac1b36). CI exercised the junction branch that could not run locally. Two additional local [supervisor](lab/README.md) checks terminated only newly created sleeping helper processes; those native process checks were not run in CI. The [progress record](docs/PROGRESS.md) separates these scopes and the earlier baselines.
 
-Offline guest logs confirmed that setup failed in `oobeSystem`: the generated first-logon command was 1,318 characters, exceeding Microsoft's 1,024-character limit. The template now uses a fixed 309-character launcher, covered by a regression test. A fresh installation with that correction is pending; neither RDS readiness nor a second native seat is demonstrated. [CommandLine constraint](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands-synchronouscommand-commandline).
+Offline guest logs confirmed that the earlier setup failed in `oobeSystem`: the generated first-logon command was 1,318 characters, exceeding Microsoft's 1,024-character limit. The template now uses a fixed 309-character launcher, covered by a regression test. A fresh installation with that correction is running from the private laboratory on D:; successful installation, RDS readiness and a second native seat remain unverified. [CommandLine constraint](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands-synchronouscommand-commandline).
 
 The supervisor's `--installed-guest` mode omits Windows installation media when resuming an existing disk; it does not repair failed setup. The [integration gaps](docs/RDS-INTEGRATION-GAPS.md) identify the remaining service, licensing, authentication and device contracts. The laboratory requires its own resource and evaluation-license approval; it does not provide a physical second seat on the host.
 
