@@ -6,7 +6,7 @@ Progress is organized by capability and evidence. A compiled component, simulate
 
 The latest local C++/CLI run passed **242 checks**, including **125 mock RDS checks**. The supervisor and answer template separately passed **28 inert Python tests**. These results include the corrected optional settings-interface contract, the installed-guest launch mode, a first-logon command-length regression check, restricted C:/D: paths and checks of both relevant volumes.
 
-The current [Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43235098189/job/131240241066) passed at commit [`e2a054872c79b24e2cef739c3b8b892ef6ac1b36`](https://github.com/kazah-png/RETSAR/commit/e2a054872c79b24e2cef739c3b8b892ef6ac1b36): **243 C++/CLI checks and 28 separate Python tests**, with no failed or skipped checks. It covers the core, probe, optional [RDS SDK bridge](RDS-BRIDGE.md) and [laboratory supervisor](../lab/README.md) at that revision. The table below separates the evidence by scope.
+The current [Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43238991828/job/131253989959) passed at commit [`9735d585feb1c02bd0eefa66b0d36109543ea16c`](https://github.com/kazah-png/RETSAR/commit/9735d585feb1c02bd0eefa66b0d36109543ea16c): **243 C++/CLI checks and 28 separate Python tests**, with no failed or skipped checks. It covers the core, probe, optional [RDS SDK bridge](RDS-BRIDGE.md) and [laboratory supervisor](../lab/README.md) at that revision. The table below separates the evidence by scope.
 
 The bridge tests load the explicit DLL and fake callback objects; they do not register COM classes or call an RDS service. The Python suite uses fake Windows API calls and inert configuration/template checks. Separate local native checks verified termination and kill-on-job-close with two newly created sleeping Python helpers. Those native process checks were not part of CI and did not create a VM or Windows session.
 
@@ -22,7 +22,7 @@ The laboratory supervisor now permits a private root on C: or D: while monitorin
 
 ## Current evidence · 0.2.0-engine-preview
 
-| Check | Latest local result | Current public CI result (`e2a0548`) |
+| Check | Latest local result | Current public CI result (`9735d58`) |
 | --- | --- | --- |
 | Model, validation and capabilities | 25 passed | 25 passed |
 | Lifecycle, journal and recovery | 57 passed | 58 passed |
@@ -32,6 +32,7 @@ The laboratory supervisor now permits a private root on C: or D: while monitorin
 | **C++/CLI total** | **242 passed, 0 failed** | **243 passed, 0 failed, 0 skipped** |
 | Python supervisor and answer-template tests; no guest execution | 28 passed, separate from C++/CLI total | 28 passed, 0 failed, 0 skipped; separate from C++/CLI total |
 | Native supervisor checks with owned helper processes | 2 passed, separate from test-suite totals | Not run |
+| Guest PowerShell script syntax; no script execution | Passed | 3 scripts parsed; separate from test-suite totals |
 | Independent JSON parsing by PowerShell | Passed, additional to the total | Passed, additional to the total |
 | Adversarial junction branch | **1 not exercised** | Exercised and included among lifecycle passes |
 | x64 C++17 build with `/W4 /WX` | Passed | Passed |
