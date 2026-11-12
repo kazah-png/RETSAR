@@ -8,7 +8,7 @@ import threading
 from types import SimpleNamespace
 import unittest
 import xml.etree.ElementTree as ET
-from unittest.mock import call, patch
+from unittest.mock import Mock, call, patch
 
 spec = importlib.util.spec_from_file_location('supervise_qemu', Path(__file__).with_name('supervise_qemu.py'))
 lab = importlib.util.module_from_spec(spec)
@@ -47,6 +47,126 @@ class FakeApi:
 
     def terminate_process(self, process):
         self.event('terminate-process', process)
+
+
+class FakeWhpApi:
+    def __init__(self, result=(0, 1, 4)):
+        self.result = result
+        self.calls = 0
+
+    def hypervisor_present(self):
+        self.calls += 1
+        return self.result
+
+
+class AcceleratorTests(unittest.TestCase):
+    def test_tcg_default_does_not_load_or_query_whp(self):
+        with patch.object(lab, 'WindowsHypervisorApi', side_effect=AssertionError('must not load WHP')):
+            lab.require_accelerator('tcg')
+            fake = FakeWhpApi()
+            lab.require_accelerator('tcg', whp_api=fake)
+            self.assertEqual(fake.calls, 0)
+
+    def test_whp_loader_is_system32_only_and_capability_abi_is_four_bytes(self):
+        class Capability:
+            def __call__(self, code, buffer, size, written):
+                self.args = code, size
+                self.initial = lab.ctypes.cast(buffer, lab.ctypes.POINTER(lab.ctypes.c_int32))[0]
+                lab.ctypes.cast(buffer, lab.ctypes.POINTER(lab.ctypes.c_int32))[0] = 1
+                lab.ctypes.cast(written, lab.ctypes.POINTER(lab.ctypes.c_uint32))[0] = 4
+                return 0
+
+        capability = Capability()
+        loader = Mock(return_value=SimpleNamespace(WHvGetCapability=capability))
+        with patch.object(lab.ctypes, 'WinDLL', side_effect=AssertionError('must not load a real DLL')):
+            api = lab.WindowsHypervisorApi(loader=loader)
+            self.assertEqual(api.hypervisor_present(), (0, 1, 4))
+        loader.assert_called_once_with('WinHvPlatform.dll', winmode=0x00000800)
+        self.assertEqual(capability.args, (0, 4))
+        self.assertEqual(capability.initial, 0)
+        self.assertIs(capability.restype, lab.ctypes.c_int32)
+        self.assertEqual(capability.argtypes, [lab.ctypes.c_uint32, lab.ctypes.c_void_p,
+                                              lab.ctypes.c_uint32, lab.ctypes.POINTER(lab.ctypes.c_uint32)])
+
+    def test_whpx_accepts_only_successful_present_capability(self):
+        fake = FakeWhpApi()
+        lab.require_accelerator('whpx', whp_api=fake)
+        self.assertEqual(fake.calls, 1)
+
+    def test_whpx_refuses_failed_or_malformed_hresult_without_fallback(self):
+        for result in (-2147024809, 0x80070057, 1, None, True, '0'):
+            with self.subTest(result=result), self.assertRaisesRegex(RuntimeError, 'no fallback'):
+                lab.require_accelerator('whpx', whp_api=FakeWhpApi((result, 1, 4)))
+
+    def test_whpx_refuses_absent_or_malformed_bool_and_returned_size(self):
+        for present, written in ((0, 4), (2, 4), (True, 4), (None, 4), (1, 0),
+                                 (1, 8), (1, None), (1, True)):
+            with self.subTest(present=present, written=written), self.assertRaisesRegex(RuntimeError, 'no fallback'):
+                lab.require_accelerator('whpx', whp_api=FakeWhpApi((0, present, written)))
+
+    def test_missing_whp_dll_or_export_fails_closed(self):
+        for error in (OSError('DLL unavailable'), AttributeError('export unavailable')):
+            with self.subTest(error=type(error).__name__), patch.object(lab, 'WindowsHypervisorApi', side_effect=error):
+                with self.assertRaisesRegex(RuntimeError, 'no guest created and no fallback'):
+                    lab.require_accelerator('whpx')
+
+    def test_whpx_unavailable_stops_before_child_ports_or_storage(self):
+        api = FakeApi()
+        with patch.object(lab, 'OwnedChild') as child, patch.object(lab, 'ports_available') as ports, \
+                patch.object(lab, 'check_storage') as storage:
+            with self.assertRaises(RuntimeError):
+                lab.supervise({}, api=api, accelerator='whpx', whp_api=FakeWhpApi((0, 0, 4)))
+            child.assert_not_called()
+            ports.assert_not_called()
+            storage.assert_not_called()
+        self.assertEqual(api.events, [])
+
+    def test_whpx_success_reaches_only_owned_fake_child_with_selected_command(self):
+        class ExitedApi(FakeApi):
+            def poll(self, process): return 0
+            def read_available(self, handle): return b''
+
+        api, whp = ExitedApi(), FakeWhpApi()
+        with tempfile.TemporaryDirectory(prefix='retsar-whpx-test-') as temp:
+            root = Path(temp)
+            paths = {name: root / name for name in ('qemu', 'code', 'vars', 'disk', 'iso', 'serial')}
+            paths.update(root=root, logs=root, reports=root)
+            with patch.object(lab, 'check_storage'), patch.object(lab, 'ports_available'), \
+                    patch.object(lab.threading, 'Thread'), patch.object(lab.sys, 'stdout', io.StringIO()):
+                self.assertEqual(lab.supervise(paths, api=api, accelerator='whpx', whp_api=whp), 0)
+        self.assertEqual(whp.calls, 1)
+        command = next(event[1] for event in api.events if event[0] == 'create-suspended')
+        self.assertEqual(command[command.index('-accel') + 1], 'whpx')
+        self.assertNotIn('-cpu', command)
+        self.assertIn(('terminate-job', 'own-job'), api.events)
+
+    def test_unknown_accelerators_and_fallback_lists_are_refused(self):
+        for value in ('whpx:tcg', 'kvm', 'whpx,kernel-irqchip=off', '', None):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    lab.require_accelerator(value)
+                with self.assertRaises(ValueError):
+                    lab.build_command({}, accelerator=value)
+
+    def test_whpx_changes_only_accelerator_and_omits_cpu_override(self):
+        paths = {name: Path('C:/private/lab') / name for name in ('qemu', 'code', 'vars', 'disk', 'iso', 'serial')}
+        tcg = lab.build_command(paths)
+        whpx = lab.build_command(paths, accelerator='whpx')
+        index = tcg.index('-accel')
+        self.assertEqual(whpx, tcg[:index] + ['-accel', 'whpx'] + tcg[index + 4:])
+        self.assertNotIn('-cpu', whpx)
+        self.assertNotIn('kernel-irqchip', ' '.join(whpx))
+        self.assertEqual(whpx.count('-accel'), 1)
+
+    def test_cli_defaults_to_tcg_and_forwards_explicit_whpx(self):
+        required = ['supervise_qemu.py', '--launch-approved', '--root', 'private-root']
+        for name in ('qemu', 'code', 'vars', 'disk', 'iso'):
+            required += ['--' + name, name]
+        for extra, expected in (([], 'tcg'), (['--accelerator', 'whpx'], 'whpx')):
+            with self.subTest(expected=expected), patch.object(lab.sys, 'argv', required + extra), \
+                    patch.object(lab, 'validate_paths', return_value={}), patch.object(lab, 'supervise', return_value=0) as supervisor:
+                self.assertEqual(lab.main(), 0)
+                supervisor.assert_called_once_with({}, installed_guest=False, accelerator=expected)
 
 
 class GuardianTests(unittest.TestCase):

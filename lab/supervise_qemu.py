@@ -29,6 +29,44 @@ POLL_SECONDS = 0.20
 HEARTBEAT_TIMEOUT = 2.0
 WRITE_BPS = 16 * 1024 ** 2
 MAX_MESSAGE = 16384
+LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x00000800
+
+
+class WindowsHypervisorApi:
+    """Read-only WHP presence query; never creates or configures a partition."""
+    def __init__(self, *, loader=None):
+        if os.name != 'nt' or ctypes.sizeof(ctypes.c_void_p) != 8:
+            raise RuntimeError("WHPX requires a 64-bit Windows supervisor")
+        # Restrict both the requested DLL and its dependencies to System32.
+        loader = ctypes.WinDLL if loader is None else loader
+        self.dll = loader('WinHvPlatform.dll', winmode=LOAD_LIBRARY_SEARCH_SYSTEM32)
+        self.query = self.dll.WHvGetCapability
+        self.query.argtypes = [ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32,
+                               ctypes.POINTER(ctypes.c_uint32)]
+        self.query.restype = ctypes.c_int32  # HRESULT, not the platform's Python int size.
+
+    def hypervisor_present(self) -> tuple[int, int, int]:
+        present = ctypes.c_int32(0)  # WHV_CAPABILITY.HypervisorPresent is a four-byte BOOL.
+        written = ctypes.c_uint32(0)
+        result = self.query(0, ctypes.byref(present), ctypes.sizeof(present), ctypes.byref(written))
+        return result, present.value, written.value
+
+
+def require_accelerator(accelerator: str, *, whp_api=None) -> None:
+    if accelerator == 'tcg':
+        return
+    if accelerator != 'whpx':
+        raise ValueError("Only tcg or whpx can be selected; accelerator fallback is not allowed")
+    try:
+        api = WindowsHypervisorApi() if whp_api is None else whp_api
+        result, present, written = api.hypervisor_present()
+    except (OSError, AttributeError) as error:
+        raise RuntimeError(f"WHPX capability query failed; no guest created and no fallback: {error}") from error
+    if type(result) is not int or result != 0:
+        code = f'0x{result & 0xffffffff:08X}' if type(result) is int else 'invalid HRESULT'
+        raise RuntimeError(f"WHPX WHvGetCapability returned {code}; no guest created and no fallback")
+    if type(written) is not int or written != 4 or type(present) is not int or present != 1:
+        raise RuntimeError("WHPX requires HypervisorPresent=TRUE and exactly four returned bytes; no guest created and no fallback")
 
 
 def allowed_drive(value: str) -> str:
@@ -79,11 +117,20 @@ def validate_qcow2(path: Path) -> None:
         raise ValueError("Backing files, encryption, snapshots and unsupported qcow2 features are refused")
 
 
-def build_command(paths: dict[str, Path], *, installed_guest: bool = False) -> list[str]:
+def build_command(paths: dict[str, Path], *, installed_guest: bool = False,
+                  accelerator: str = 'tcg') -> list[str]:
     """No extra QEMU arguments are accepted from callers."""
+    if accelerator == 'tcg':
+        accelerator_args = ['-accel', 'tcg,thread=multi', '-cpu', 'max']
+    elif accelerator == 'whpx':
+        # QEMU 11.0 WHPX ignores -cpu; use its documented minimal configuration.
+        # Do not add an unverified CPU model, IRQ-chip override, or fallback list.
+        accelerator_args = ['-accel', 'whpx']
+    else:
+        raise ValueError("Only tcg or whpx can be selected; accelerator fallback is not allowed")
     command = [str(paths['qemu']), '-no-user-config', '-nodefaults', '-name', 'RETSAR-Lab',
-               '-machine', 'q35,vmport=off', '-accel', 'tcg,thread=multi',
-               '-cpu', 'max', '-m', '4096', '-smp', '2', '-display', 'none',
+               '-machine', 'q35,vmport=off', *accelerator_args,
+               '-m', '4096', '-smp', '2', '-display', 'none',
                '-vga', 'std', '-vnc', '127.0.0.1:5', '-qmp', 'stdio',
                '-monitor', 'none', '-serial', f"file:{paths['serial']}", '-parallel', 'none', '-S',
                '-drive', f"if=pflash,format=raw,unit=0,readonly=on,file={paths['code']}",
@@ -508,7 +555,8 @@ def input_reader(commands, ended):
         ended.set()
 
 
-def supervise(paths, *, api=None, installed_guest=False):
+def supervise(paths, *, api=None, installed_guest=False, accelerator='tcg', whp_api=None):
+    require_accelerator(accelerator, whp_api=whp_api)
     api = api or WindowsApi()
     check_storage(paths['root'])
     ports_available()
@@ -525,7 +573,7 @@ def supervise(paths, *, api=None, installed_guest=False):
     log_path = paths['logs'] / f'qemu-{time.time_ns()}.stderr.log'
     with log_path.open('xb') as log:
         try:
-            child.start(build_command(paths, installed_guest=installed_guest), paths['root'])
+            child.start(build_command(paths, installed_guest=installed_guest, accelerator=accelerator), paths['root'])
             watchdog = threading.Thread(target=heartbeat.watch, args=(child,), daemon=True)
             watchdog.start()
             threading.Thread(target=input_reader, args=(commands, input_failed), daemon=True).start()
@@ -600,13 +648,15 @@ def main():
     parser.add_argument('--unattend-iso', help='Optional existing read-only installation-answer ISO inside the C: or D: lab root')
     parser.add_argument('--launch-approved', action='store_true', help='Explicit opt-in to the already approved lab launch')
     parser.add_argument('--installed-guest', action='store_true', help='Boot the existing disk without attaching the Windows installation ISO')
+    parser.add_argument('--accelerator', choices=('tcg', 'whpx'), default='tcg',
+                        help='TCG by default; WHPX explicitly requires an already available Windows hypervisor, with no fallback or host configuration changes')
     args = parser.parse_args()
     if os.name != 'nt':
         parser.error('This supervisor is Windows-only')
     if not args.launch_approved:
         parser.error('No child was created: --launch-approved is required')
     paths = validate_paths(args)
-    return supervise(paths, installed_guest=args.installed_guest)
+    return supervise(paths, installed_guest=args.installed_guest, accelerator=args.accelerator)
 
 
 if __name__ == '__main__':

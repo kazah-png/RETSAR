@@ -1,8 +1,8 @@
 # Windows Server laboratory
 
-This directory contains an opt-in Windows QEMU supervisor and a deployment template for testing the C++ RDS provider in a **real Windows Server guest**. The supervisor and answer template passed 28 inert Python tests, and two native checks terminated only newly created sleeping Python helper processes. Windows Setup booted but failed during `oobeSystem`. The command-length cause is confirmed and the template is corrected; a fresh installation remains pending. **Installed-system startup, RDSH readiness and guest session creation remain unverified.**
+This directory contains an opt-in Windows QEMU supervisor and a deployment template for testing the C++ RDS provider in a **real Windows Server guest**. The supervisor and answer template passed 39 inert Python tests, including simulated WHP capability responses, and two native checks terminated only newly created sleeping Python helper processes. The corrected installation reached its first desktop and later booted with WHPX. Its bootstrap emitted `rdsh-configured`, verifying the installed RD Session Host role and running service. **The reference client connection, provider readiness and guest session creation remain unverified.**
 
-[plan.json](plan.json) is a reusable deployment template, not a record of anyone's approval or computer. Its deployment-state fields start unapproved and unprovisioned. Each deployment needs approval for its resource use and applicable evaluation terms; the repository does not supply that approval, installation media or credentials.
+[plan.json](plan.json) is a reusable deployment template, not a record of anyone's approval or computer. Its approval and guest deployment-state fields remain unapproved and unprovisioned defaults. The separate `validation` fields record observations from a controlled laboratory, including WHPX desktop boot and the bootstrap's role/service checks; those observations do not provision or authorize another deployment. Each deployment needs approval for its resource use and applicable evaluation terms; the repository does not supply that approval, installation media or credentials.
 
 ## Scope of the experiment
 
@@ -18,7 +18,7 @@ This experiment does **not** establish physical multiseat support on Windows 11 
 | --- | --- |
 | Guest memory | 4 GiB |
 | Virtual CPUs | 2 |
-| Accelerator | QEMU TCG software emulation |
+| Accelerator | TCG by default; WHPX only with explicit opt-in and an already available hypervisor |
 | Host process priority | BelowNormal |
 | Guest disk | Sparse qcow2, 64 GiB virtual capacity, no preallocation |
 | Guest disk write throttle | 16 MiB/s |
@@ -26,9 +26,17 @@ This experiment does **not** establish physical multiseat support on Windows 11 
 | Desired free-space floor on C: and the laboratory volume | 25 GiB on each distinct volume |
 | Supervisor stop threshold | At or below 26 GiB on either monitored volume |
 
-TCG is the baseline and fallback: the plan does not assume that WHPX or Hyper-V is usable and does not enable either feature. TCG is supported on Windows, but boot time, responsiveness and CPU consumption have not been measured for this guest. BelowNormal priority and two virtual CPUs do not constitute a hard CPU-use ceiling. [QEMU accelerator documentation](https://www.qemu.org/docs/master/system/introduction.html).
+TCG remains the default (`--accelerator tcg`), using `-accel tcg,thread=multi -cpu max`. The supervisor never switches accelerators automatically. TCG is supported on Windows, but boot time, responsiveness and CPU consumption have not been measured for this guest. BelowNormal priority and two virtual CPUs do not constitute a hard CPU-use ceiling. [QEMU accelerator documentation](https://www.qemu.org/docs/master/system/introduction.html).
 
-The fixed command uses q35, an emulated NVMe disk, UEFI firmware, emulated VGA and a virtual USB tablet. The exact QEMU build, its dependencies and firmware files must be verified for each deployment. Windows Setup boot is observed; compatibility of the installed system still requires verification.
+`--accelerator whpx` is an explicit option for a Windows hypervisor that is already available. Before creating any child, the supervisor loads `WinHvPlatform.dll` with the System32-only search flag and makes the read-only `WHvGetCapability(WHvCapabilityCodeHypervisorPresent)` query. It requires `S_OK`, exactly four returned bytes and `BOOL TRUE`; a missing DLL/export, failed query, absent hypervisor or malformed response stops the launch. The query creates no partition, and the supervisor neither enables Windows features nor changes host services, drivers or boot settings. There is no automatic TCG fallback. [Microsoft capability API](https://learn.microsoft.com/en-us/virtualization/api/hypervisor-platform/funcs/whvgetcapability).
+
+The WHPX command uses only `-accel whpx`, with no CPU-model or interrupt-controller override. The verified QEMU build's documentation states that x86_64 WHPX ignores `-cpu`; that command has now booted the selected guest to its desktop. The q35 machine, firmware, disk attachments, 4 GiB memory, two virtual CPUs, write throttle, private networking and job/storage guardians remain the same. Hardware CPU acceleration does not provide GPU passthrough or prove physical multiseat support. [Matching QEMU WHPX documentation](https://github.com/qemu/qemu/blob/54e84cdc7a/docs/system/whpx.rst).
+
+A separate read-only host probe returned `S_OK`, `HypervisorPresent=TRUE` and four written bytes. This establishes capability availability on that laboratory host only. The 39 automated tests use fake WHP functions and do not query a real hypervisor or create partitions. Separately, the TCG guest shut down cleanly with QMP reason `guest-shutdown` and exit code zero, and its stopped disk/writable-firmware checkpoint was verified with SHA-256 before the real WHPX boot. That boot reached the desktop and the bootstrap's final role/service marker. No host configuration changes were made.
+
+The WHPX run emitted the QEMU warning `Ignoring request for interrupt vector 0`. It did not prevent the observed desktop or `rdsh-configured` marker. Its implications for longer operation and other workloads remain unverified; the warning is not classified as harmless.
+
+The fixed command uses q35, an emulated NVMe disk, UEFI firmware, emulated VGA and a virtual USB tablet. The exact QEMU build, its dependencies and firmware files must be verified for each deployment. Windows Setup and the corrected installed system have reached the guest desktop; workload compatibility and prolonged operation still require verification.
 
 The Windows QEMU build rejected `dump-guest-core=off` with `Dumping guest memory cannot be disabled on this host`. That unsupported option was removed. The supervisor cannot enforce exclusion of guest memory from host crash dumps through that flag; no host crash-dump setting was changed. Startup stderr is retained even when QEMU exits before QMP becomes available.
 
@@ -69,7 +77,9 @@ All disk images, media, variable firmware files and test outputs belong in one p
 
 ## Unattended guest setup
 
-[autounattend.xml.template](autounattend.xml.template) was used by Windows Setup in the guest; execution of [guest-bootstrap.ps1](guest-bootstrap.ps1) has not yet been observed. Read-only inspection of the failed guest's setup logs identified an invalid `FirstLogonCommands/SynchronousCommand/CommandLine` in `oobeSystem`, with error `0x80220005`. The original generated command was 1,318 characters; Microsoft limits this field to 1,024 characters. The corrected template has a fixed 309-character launcher instead of an encoded-command placeholder. An inert regression test checks that the launcher stays within the limit. **This correction has not yet passed a fresh installation.** [CommandLine constraint](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands-synchronouscommand-commandline).
+[autounattend.xml.template](autounattend.xml.template) was used by Windows Setup in the guest. Read-only inspection of the failed guest's setup logs identified an invalid `FirstLogonCommands/SynchronousCommand/CommandLine` in `oobeSystem`, with error `0x80220005`. The original generated command was 1,318 characters; Microsoft limits this field to 1,024 characters. The corrected template has a fixed 309-character launcher instead of an encoded-command placeholder. An inert regression test checks that the launcher stays within the limit. The fresh corrected installation reached its first desktop and started [guest-bootstrap.ps1](guest-bootstrap.ps1). [CommandLine constraint](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands-synchronouscommand-commandline).
+
+The observed serial records include schema `retsar.guest-bootstrap.v1`, phase `environment-verified`, computer `RETSARLAB`, Windows Server 2022 Standard Evaluation and `createdSeat=false`. After the WHPX desktop boot, rerunning the bootstrap inside the guest emitted `rdsh-configured` with `installed=true`, `serviceStatus=Running`, `providerRegistered=false` and `createdSeat=false`. This verifies the installed role and running service; it does not verify a successful client connection, an operational provider or session independence. The RDP reference experiment has not been executed.
 
 A private builder must substitute only the selected image index and a guest-only administrator password, preserving the fixed launcher. The generated answer XML and optional answer ISO contain that password in plaintext. Read-only attachment does not encrypt them: keep both private, restrict access, and never commit, publish or include them in logs. Guest setup may retain copies inside the disposable disk. Disabling automatic logon does not certify that every credential copy has been erased.
 
@@ -97,16 +107,20 @@ QEMU is a separate tool under GPLv2, with component-specific licenses. Its binar
 - [ ] Official media obtained and verified; Desktop Experience selected.
 - [ ] QEMU build, dependencies, firmware and guest boot configuration verified.
 - [ ] Private C: or D: laboratory paths checked, with resource headroom on C: and the laboratory volume.
-- [x] Supervisor, fixed launch configuration and answer-template regression checks implemented; 28 inert Python tests passed.
+- [x] Supervisor, fixed launch configuration, simulated WHP guard and answer-template regression checks implemented; 39 inert Python tests passed.
+- [x] Separate read-only WHP presence probe returned a valid positive capability result.
+- [x] WHPX guest boot reached the desktop with the selected build; TCG remains the default.
+- [ ] WHPX workload behavior and the observed interrupt-vector warning assessed.
 - [x] Native job termination and kill-on-close checked with two owned helper children.
 - [x] Failed guest setup diagnosed from read-only evidence; oversized first-logon command corrected.
-- [ ] Fresh installation with the corrected answer template verified.
-- [ ] VM storage-growth behavior and guest boot verified.
+- [x] Fresh corrected installation reached the first guest desktop.
+- [x] Guest bootstrap entry and `environment-verified` serial evidence observed.
+- [ ] VM storage-growth behavior under load verified.
 - [ ] Loopback ports and client redirection settings checked.
 - [ ] Activation and updates network arrangement agreed.
 - [ ] Private answer ISO, credential handling and guest-disk-only wipe reviewed for this deployment.
-- [ ] Guest installed, required guest reboots completed, and `rdsh-configured` evidence reviewed.
+- [x] `rdsh-configured` evidence confirms the installed role and running service after WHPX boot.
 - [ ] Provider readiness verified separately from role installation and service status.
 - [ ] Real session lifecycle experiment executed and evidence reviewed.
 
-Only the checked component-level validations have passed. The guest installation attempt failed; the corrected run is pending. The real session lifecycle remains untested. GitHub compilation and unit tests do not complete either experiment.
+Checked items record component validations, guest desktop boot and the installed role/running service. They do not carry deployment approval. The reference client connection and real session lifecycle remain untested. GitHub compilation and unit tests do not complete either experiment.

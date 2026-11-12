@@ -5,13 +5,50 @@
   "launcherImplemented": true,
   "supervisor": "supervise_qemu.py",
   "validation": {
-    "fakeApiTestsPassed": 28,
-    "pythonTestScope": "Inert supervisor, fake Windows API and answer-template regression tests; no guest execution.",
+    "scope": "Observed evidence from a separately approved laboratory; not deployment approval or readiness for a new deployment.",
+    "fakeApiTestsPassed": 39,
+    "pythonTestScope": "Inert supervisor, fake Windows/WHP APIs and answer-template regression tests; no guest execution or real hypervisor query.",
+    "whpCapabilityReadOnlyProbe": {
+      "observed": true,
+      "hresult": "S_OK",
+      "hypervisorPresent": true,
+      "writtenSizeBytes": 4,
+      "scope": "A separate read-only query on the laboratory host; no partition creation or host configuration changes. Availability must be checked for every WHPX launch."
+    },
+    "whpxGuestBootObserved": true,
+    "whpxGuestBootScope": "Selected guest reached the desktop and emitted rdsh-configured; reference connection and workload behavior remain unverified.",
+    "stoppedGuestCheckpoint": {
+      "cleanShutdownObserved": true,
+      "qmpReason": "guest-shutdown",
+      "processExitCode": 0,
+      "sha256VerifiedArtifacts": ["guest disk", "writable firmware"],
+      "scope": "Private checkpoint verified after clean TCG shutdown and before the WHPX boot; no host configuration changes."
+    },
+    "whpxWarning": {
+      "message": "Ignoring request for interrupt vector 0",
+      "desktopAndBootstrapMarkerObservedDespiteWarning": true,
+      "widerImpactVerified": false
+    },
     "nativeOwnedChildChecksPassed": 2,
     "nativeCheckScope": "Newly created sleeping Python helpers: job termination and kill on job closure.",
     "qemuStartupAttempted": true,
-    "guestBootObserved": false,
+    "guestBootObserved": true,
     "windowsSetupBootObserved": true,
+    "installedSystemFirstDesktopObserved": true,
+    "guestBootstrapObservation": {
+      "schema": "retsar.guest-bootstrap.v1",
+      "phase": "rdsh-configured",
+      "computer": "RETSARLAB",
+      "os": "Microsoft Windows Server 2022 Standard Evaluation",
+      "createdSeat": false,
+      "environmentVerifiedMarkerObserved": true,
+      "rolePreparationInProgress": false,
+      "installed": true,
+      "serviceStatus": "Running",
+      "providerRegistered": false,
+      "rdshConfiguredMarkerObserved": true,
+      "rdpReferenceExecuted": false
+    },
     "guestDiskReadOnlyCheck": "No qcow2 errors found before resuming; this did not establish successful Windows setup.",
     "guestSetupFailure": {
       "confirmedFromReadOnlyGuestLogs": true,
@@ -23,8 +60,9 @@
       "correctedTemplateCommandCharacters": 309,
       "encodedCommandPlaceholderRemoved": true,
       "regressionTestPassed": true,
-      "freshCorrectedInstallationVerified": false,
-      "nextStep": "Prepare and verify a fresh corrected disposable guest within the existing resource budget.",
+      "freshCorrectedInstallationVerified": true,
+      "verificationScope": "Corrected installed system reached its first desktop; a later WHPX boot emitted rdsh-configured with the role installed and service running. Reference connection remains unverified.",
+      "nextStep": "Execute and observe the separately authorized reference-session experiment; do not infer provider readiness from the role/service marker.",
       "constraintSource": "https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands-synchronouscommand-commandline"
     },
     "guestSessionCreationProven": false
@@ -44,6 +82,7 @@
     ]
   },
   "guest": {
+    "deploymentStateScope": "Unprovisioned defaults for a new deployment; observed laboratory results are recorded under validation.",
     "product": "Windows Server 2022 Standard Evaluation",
     "installationOption": "Desktop Experience",
     "architecture": "x86_64",
@@ -65,7 +104,19 @@
     "memoryMiB": 4096,
     "virtualCpuCount": 2,
     "accelerator": "tcg",
+    "allowedAccelerators": ["tcg", "whpx"],
+    "acceleratorFallbackAllowed": false,
     "hardwareAccelerationAssumed": false,
+    "whpxRequiresExplicitOptIn": true,
+    "whpxPreflight": {
+      "api": "WHvGetCapability(WHvCapabilityCodeHypervisorPresent)",
+      "dllSearch": "System32 only",
+      "readOnly": true,
+      "requiredHresult": "S_OK",
+      "requiredBool": "TRUE",
+      "requiredWrittenBytes": 4,
+      "failureBehavior": "Stop before child creation; do not enable features, change services or fall back."
+    },
     "hostProcessPriority": "BelowNormal",
     "disk": {
       "format": "qcow2",
@@ -106,8 +157,12 @@
   "machineProposal": {
     "chipset": "q35",
     "cpuModel": "max",
+    "cpuModelScope": "TCG only; the WHPX branch omits -cpu for the verified QEMU build.",
+    "whpxArguments": ["-accel", "whpx"],
+    "whpxIrqchipOverride": false,
+    "whpxCompatibilitySource": "https://github.com/qemu/qemu/blob/54e84cdc7a/docs/system/whpx.rst",
     "firmware": "UEFI; compatible firmware files must be verified before provisioning",
-    "storageInterface": "emulated NVMe; Windows Setup recognized the guest disk, but completed installed-system startup remains unverified",
+    "storageInterface": "emulated NVMe; corrected installed-system desktop and bootstrap entry observed; workload compatibility remains unverified",
     "graphics": "emulated standard VGA; no host GPU passthrough",
     "pointer": "emulated USB tablet; no host device passthrough",
     "guestMemoryDumpExclusionEnforced": false,
@@ -137,7 +192,8 @@
     "template": "autounattend.xml.template",
     "bootstrap": "guest-bootstrap.ps1",
     "reviewed": true,
-    "executedInGuest": false,
+    "executedInGuest": true,
+    "executionEvidenceScope": "Corrected setup reached the first desktop; bootstrap after WHPX boot emitted rdsh-configured with installed=true and serviceStatus=Running, while providerRegistered and createdSeat remain false.",
     "optionalAnswerIsoReadOnly": true,
     "generatedAnswerMediaContainsPlaintextCredentials": true,
     "generatedAnswerMediaMustRemainPrivate": true,
@@ -186,9 +242,10 @@
     "Obtain explicit resource and applicable license approval.",
     "Obtain and verify official media; prepare only a disposable guest disk.",
     "Verify QEMU dependencies, firmware, private paths and loopback ports.",
+    "If explicitly choosing WHPX, verify existing capability read-only and exact-build guest compatibility; do not enable host hypervisor features.",
     "Review private answer-media credentials and the fixed guest-disk-only wipe scope.",
     "Keep the supervisor controller input open throughout the run.",
     "Agree activation and updates networking separately from the restricted baseline.",
-    "Treat guest boot, role configuration and real session creation as separate unproven stages."
+    "Verify guest boot, role configuration and real session creation as separate acceptance stages for each deployment."
   ]
 }

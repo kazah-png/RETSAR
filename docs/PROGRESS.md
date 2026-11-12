@@ -4,9 +4,9 @@ Progress is organized by capability and evidence. A compiled component, simulate
 
 ## SDK bridge and laboratory supervision checkpoint
 
-The latest local C++/CLI run passed **242 checks**, including **125 mock RDS checks**. The supervisor and answer template separately passed **28 inert Python tests**. These results include the corrected optional settings-interface contract, the installed-guest launch mode, a first-logon command-length regression check, restricted C:/D: paths and checks of both relevant volumes.
+The latest local C++/CLI run passed **242 checks**, including **125 mock RDS checks**. The supervisor and answer template separately passed **39 inert Python tests**. These results include the corrected optional settings-interface contract, the installed-guest launch mode, a first-logon command-length regression check, restricted C:/D: paths, checks of both relevant volumes and the explicit WHPX option with simulated capability responses.
 
-The current [Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43238991828/job/131253989959) passed at commit [`9735d585feb1c02bd0eefa66b0d36109543ea16c`](https://github.com/kazah-png/RETSAR/commit/9735d585feb1c02bd0eefa66b0d36109543ea16c): **243 C++/CLI checks and 28 separate Python tests**, with no failed or skipped checks. It covers the core, probe, optional [RDS SDK bridge](RDS-BRIDGE.md) and [laboratory supervisor](../lab/README.md) at that revision. The table below separates the evidence by scope.
+The current [Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43238991828/job/131253989959) passed at commit [`9735d585feb1c02bd0eefa66b0d36109543ea16c`](https://github.com/kazah-png/RETSAR/commit/9735d585feb1c02bd0eefa66b0d36109543ea16c): **243 C++/CLI checks and 28 separate Python tests**, with no failed or skipped checks. It covers the core, probe, optional [RDS SDK bridge](RDS-BRIDGE.md) and [laboratory supervisor](../lab/README.md) at that revision. The expanded 39-test suite has passed locally and is not included in that CI result. The table below separates the evidence by scope.
 
 The bridge tests load the explicit DLL and fake callback objects; they do not register COM classes or call an RDS service. The Python suite uses fake Windows API calls and inert configuration/template checks. Separate local native checks verified termination and kill-on-job-close with two newly created sleeping Python helpers. Those native process checks were not part of CI and did not create a VM or Windows session.
 
@@ -14,9 +14,13 @@ Review corrected the required readiness notification order, serialized outgoing 
 
 The narrow settings fix accepts a null optional `IWRdsProtocolSettings` interface and still rejects a null required `WRDS_SETTINGS` structure. Sixteen added mock checks cover reference retention, replacement, rejection and release. The structure's service policy is still not interpreted; successful reference management is not complete RDS initialization. The [integration-gaps review](RDS-INTEGRATION-GAPS.md) records the remaining contracts.
 
-The separate guest experiment reached Windows Setup but failed during `oobeSystem`. Read-only inspection of the guest logs identified `FirstLogonCommands/SynchronousCommand/CommandLine` as invalid with error `0x80220005`. Its generated command contained 1,318 characters, exceeding the documented limit of 1,024. The fixed template now contains a 309-character launcher and no encoded-command placeholder; a regression test checks the constraint. [Microsoft CommandLine documentation](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands-synchronouscommand-commandline).
+An earlier guest installation reached Windows Setup but failed during `oobeSystem`. Read-only inspection of the guest logs identified `FirstLogonCommands/SynchronousCommand/CommandLine` as invalid with error `0x80220005`. Its generated command contained 1,318 characters, exceeding the documented limit of 1,024. The fixed template now contains a 309-character launcher and no encoded-command placeholder; a regression test checks the constraint. [Microsoft CommandLine documentation](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands-synchronouscommand-commandline).
 
-The qcow2 structural check passed, but that did not establish successful Windows setup or repair the invalid answer file. Laboratory asset relocation was verified before starting a fresh corrected installation from a private root on D:, under the same 4 GiB RAM and two-vCPU budget. That installation is in progress. Successful installation, RDS configuration, provider readiness and real session creation remain unverified. The native executor stays blocked and P0 remains open.
+The qcow2 structural check passed, but that did not establish successful Windows setup or repair the invalid answer file. Laboratory asset relocation was verified before starting a fresh corrected installation from a private root on D:, under the same 4 GiB RAM and two-vCPU budget. That corrected installation reached its first Administrator desktop. A guest screenshot showed the desktop and the bootstrap collecting role data; the serial report recorded `retsar.guest-bootstrap.v1`, `phase=environment-verified`, `computer=RETSARLAB`, Windows Server 2022 Standard Evaluation and `createdSeat=false`.
+
+The TCG guest was then shut down cleanly: QMP reported `guest-shutdown` and the process exited with code zero. A stopped-guest checkpoint of the disk and writable firmware was verified with SHA-256. A separate read-only host capability query returned `S_OK`, four bytes and `HypervisorPresent=TRUE`; no Windows feature or service was changed. The explicit WHPX launch reached the guest desktop under the same resource budget. QEMU emitted `Ignoring request for interrupt vector 0`; that warning did not prevent the observed desktop and bootstrap result, but its wider impact has not been established.
+
+Rerunning the bootstrap inside that guest emitted `environment-verified` and then `rdsh-configured`, with `installed=true`, `serviceStatus=Running`, `providerRegistered=false` and `createdSeat=false`. This verifies the role and running service, not a successful client connection or an operational RETSAR provider. The guest-local RDP reference, provider readiness and real session creation remain unverified. The native executor stays blocked and P0 remains open. These guest observations are separate from the automated test totals and do not grant approval for another deployment.
 
 The laboratory supervisor now permits a private root on C: or D: while monitoring free space on both C: and the selected laboratory volume. Other volumes are rejected before filesystem access. This change applies only to the disposable laboratory; the core's C-only journal and CLI output policy remains unchanged.
 
@@ -30,7 +34,7 @@ The laboratory supervisor now permits a private root on C: or D: while monitorin
 | Laboratory probe argument/session-gate tests | 29 passed | 29 passed |
 | RDS bridge mock callback contracts | 125 passed | 125 passed |
 | **C++/CLI total** | **242 passed, 0 failed** | **243 passed, 0 failed, 0 skipped** |
-| Python supervisor and answer-template tests; no guest execution | 28 passed, separate from C++/CLI total | 28 passed, 0 failed, 0 skipped; separate from C++/CLI total |
+| Python supervisor and answer-template tests; no guest execution | 39 passed, separate from C++/CLI total | 28 passed, 0 failed, 0 skipped at the linked revision; separate from C++/CLI total |
 | Native supervisor checks with owned helper processes | 2 passed, separate from test-suite totals | Not run |
 | Guest PowerShell script syntax; no script execution | Passed | 3 scripts parsed; separate from test-suite totals |
 | Independent JSON parsing by PowerShell | Passed, additional to the total | Passed, additional to the total |
@@ -71,7 +75,7 @@ Compiling the probe does not validate its interactive window, graphics device, e
 
 ## Milestone: Server reference experiment
 
-**Status: guest tools prepared; real connection not yet executed.**
+**Status: WHPX guest desktop, installed RD Session Host role and running service verified; real reference connection not yet executed.**
 
 The [read-only session observer](../lab/SESSION-OBSERVATION.md) records bounded WTS snapshots with user, state and logon/connection times. Its PowerShell syntax, extracted C# compilation, native layouts and synthetic timestamp conversions were checked without invoking WTS on the host. These checks are separate from the suite totals above.
 
