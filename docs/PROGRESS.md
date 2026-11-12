@@ -6,7 +6,7 @@ Progress is organized by capability and evidence. A compiled component, simulate
 
 The last complete local C++/CLI baseline passed **242 checks**, including **125 mock RDS checks**. The supervisor suite now has **46 separate inert Python tests**, and local guest-helper checks total **175**: 27 observer, nine reference-marker, 73 activation and 66 boot-trace checks. These helpers exercise pure logic and synthetic buffers; they do not run guest operations.
 
-The latest verified [Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43271355596/job/131368415784) passed at commit [`f2063b8`](https://github.com/kazah-png/RETSAR/commit/f2063b8): **243 C++/CLI checks, 46 separate Python tests and 168 separate inert PowerShell checks**, with no failed or skipped checks. Its PowerShell scope was 27 observer, nine reference-marker, 66 activation and 66 boot-trace checks; it also parsed five guest scripts without executing them. The DLL-permission correction adds seven later local checks; its next CI run is pending. The table below keeps local and CI scopes separate.
+The latest verified [Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43277022578/job/131388022533) passed at commit [`8b5f425`](https://github.com/kazah-png/RETSAR/commit/8b5f425439ef328964cbf51c9508c33b3626ffa6): **243 C++/CLI checks, 46 separate Python tests and 175 separate inert PowerShell checks**, with no failed or skipped checks. Its PowerShell scope was 27 observer, nine reference-marker, 73 activation and 66 boot-trace checks; it also parsed five guest scripts without executing them. The table below keeps local and CI scopes separate.
 
 The bridge tests load the explicit DLL and fake callback objects; they do not register COM classes or call an RDS service. The Python suite uses fake Windows API calls and inert configuration/template checks. Separate local native checks verified termination and kill-on-job-close with two newly created sleeping Python helpers. Those native process checks were not part of CI and did not create a VM or Windows session.
 
@@ -26,7 +26,7 @@ The laboratory supervisor now permits a private root on C: or D: while monitorin
 
 ## Current evidence · 0.2.0-engine-preview
 
-| Check | Latest local result | Verified public CI result (`f2063b8`) |
+| Check | Latest local result | Verified public CI result (`8b5f425`) |
 | --- | --- | --- |
 | Model, validation and capabilities | 25 passed | 25 passed |
 | Lifecycle, journal and recovery | 57 passed | 58 passed |
@@ -37,9 +37,9 @@ The laboratory supervisor now permits a private root on C: or D: while monitorin
 | Python supervisor and answer-template tests; no guest execution | 46 passed, separate from C++/CLI total | 46 passed, 0 failed, 0 skipped; separate from C++/CLI total |
 | Pure observer PowerShell checks; no WTS calls | 27 passed, separate from C++/CLI and Python totals | 27 passed, 0 failed; separate from other totals |
 | Pure reference-marker PowerShell checks; no account operations | 9 passed, separate from other totals | 9 passed, 0 failed; separate from other totals |
-| Inert activation PowerShell checks | 73 passed | 66 passed, 0 failed |
+| Inert activation PowerShell checks | 73 passed | 73 passed, 0 failed |
 | Inert boot-trace PowerShell checks | 66 passed | 66 passed, 0 failed |
-| **PowerShell helper total** | **175 passed, separate from other totals** | **168 passed, 0 failed, 0 skipped; separate from other totals** |
+| **PowerShell helper total** | **175 passed, separate from other totals** | **175 passed, 0 failed, 0 skipped; separate from other totals** |
 | Native supervisor checks with owned helper processes | 2 passed, separate from test-suite totals | Not run |
 | Guest PowerShell script syntax; no script execution | All 5 guest scripts parsed separately | 5 scripts parsed; separate from test-suite totals |
 | Independent JSON parsing by PowerShell | Passed, additional to the total | Passed, additional to the total |
@@ -105,6 +105,16 @@ The third attempt corrected the staged DLL's observed DACL, adding explicit Netw
 A guest restart under WHPX reached virtual-processor exit 4 and QMP `guest-panic`, with process exit code zero. That exit code was not a clean-shutdown result. The stopped disk passed a read-only qcow2 structural check, which does not establish filesystem integrity. Clean guest power-off and a fresh supervised launch subsequently worked; reset reliability remains unresolved.
 
 Current development, builds and heavy laboratory assets are on D:. Host multiseat software, host display/input assignments and unrelated volumes remain untouched. These observations do not advance physical-seat P0 to complete.
+
+## Milestone: console indirect-display reference
+
+**Status: a bounded guest device lifecycle and acquired-buffer evidence were observed; cleanup was independently verified after a cold boot.**
+
+The separate [console IDD experiment](../lab/idd-reference/RESULTS.md) installed its guest-only signed package and ran the device holder for 120 seconds. The helper exited with code zero and verified creation, started/present state, handle closure and disappearance. Its trace contained 22 provider events from one PID, with device/adapter initialization, monitor arrival, mode handling and successful D3D initialization. `FramesAcquired` reported `Count=1`; `DriverUnload` later reported a total of three acquired buffers and two assigned swapchains. ETW reported zero lost events and buffers.
+
+The first `SwapchainSetDevice` returned `DXGI_ERROR_ACCESS_LOST` (`0x887A0026`) at trace offset +0.247 seconds; a second assignment succeeded at +0.250 seconds. `AcquireStopped` returned the same error at +119.691 seconds, followed by unload about 11 milliseconds later. This timing is compatible with teardown, but the holder's close action has no corresponding timestamped event, so causality is not established. No moving-pixel output, sustained rendering or hardware acceleration was demonstrated.
+
+Receipt-based cleanup reported removal of the owned package, device and certificate and restoration of the guest boot setting, with no recorded cleanup failure. A separate cold boot confirmed the new boot, absence of owned certificates, package, software devices and provider registration, and a stopped trace. The test-signing setting was absent both in the original baseline and in the verified current configuration. This console virtual display is separate from the RDS provider/listener experiment: it establishes neither remote-session display binding nor a new user session, independent input or a physical second seat. Source licenses and compilation constraints remain recorded in the [reference directory](../lab/idd-reference/README.md).
 
 ## Milestone: native session research
 

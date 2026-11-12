@@ -2,7 +2,7 @@
 
 This directory contains reviewable source for a RETSAR console virtual-display experiment in an isolated QEMU Windows Server 2022 guest. It is derived from Microsoft's IddSample at commit `d49bb7d72f3651952b2b6e4ad28d14fe2247eb69`.
 
-The driver and helper sources were compiled privately with MSVC 14.44.35207, WDK/SDK 10.0.26100.6584, UMDF 2.25 and IddCx 1.4. That compilation is the evidence available for this source snapshot. This directory does not establish successful guest driver startup, monitor arrival, frame acquisition or cleanup. It does not provide a validated public build pipeline or claim reproducible binaries.
+The driver and helper sources were compiled privately with MSVC 14.44.35207, WDK/SDK 10.0.26100.6584, UMDF 2.25 and IddCx 1.4. A separate [live guest experiment](RESULTS.md) verified the bounded device lifecycle, monitor arrival and acquired-buffer counters. Guest resource removal and boot-setting restoration passed, and independent verification after a cold boot confirmed the restored state. These results do not prove moving pixels, sustained rendering, a separate user session or physical display/input isolation. The directory still provides no validated public build pipeline or reproducible-binary claim.
 
 ## Contents and provenance
 
@@ -15,6 +15,7 @@ The driver and helper sources were compiled privately with MSVC 14.44.35207, WDK
 | `upstream-diff.patch` | Text diff of the adapted driver/header/INF against the pinned upstream originals; line endings are normalized for comparison. |
 | `LICENSE-MS-PL.txt`, `NOTICE.txt` | Retained Microsoft license and attribution, including the boundary with the original MIT-licensed helper. |
 | [BUILD.md](BUILD.md) | Toolchain roots, compiler/linker settings and limitations of the private compilation reference. |
+| [RESULTS.md](RESULTS.md) | Observed guest lifecycle, frame-counter evidence, retained errors and cleanup limits. |
 
 The four C++/header/manifest files contain the same source used for the private compilation, normalized to UTF-8 without a BOM and LF line endings. The INF differs from the privately checked package in its introductory comment and replacement of DriverVer with placeholders, with the same text normalization. The manifest's `sha256` and `bytes` fields describe the normalized public files; `upstreamSha256` retains the hashes of the original acquired upstream bytes. Unused upstream sample EDID tables and production TODO comments remain to make the adaptation easy to compare.
 
@@ -24,7 +25,7 @@ The driver advertises a single virtual monitor. TraceLogging records lifecycle e
 
 The helper requires an elevated process, computer name `RETSARLAB`, manufacturer `QEMU`, and Windows Server build `20348`. Device creation requires the explicit `--create-approved` argument. Session 0 additionally requires `--guest-management`; this records caller and active-console session IDs without asserting session ownership. The software device uses handle lifetime, and the helper observes presence/start state and waits up to another 15 seconds after closing the handle to check removal. A supervisor is still needed to bound a hung process.
 
-These are implementation constraints, not evidence of a working seat. Even a successful helper lifecycle would not prove acquired frames, physical monitor ownership, remote-session display support, an independent login session, keyboard/mouse assignment or multiseat operation. Frame evidence would require separately reviewed driver events.
+These are implementation constraints, not evidence of a working seat. The helper lifecycle and separately reviewed driver events now establish the limited observations in [RESULTS.md](RESULTS.md). They do not prove physical monitor ownership, remote-session display support, an independent login session, keyboard/mouse assignment or multiseat operation.
 
 ## Build and distribution boundary
 

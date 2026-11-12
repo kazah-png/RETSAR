@@ -40,7 +40,7 @@ The goal is two independent seats on one computer, with explicit resource assign
 | Isolated laboratory supervisor | Fake-API tests and local owned-process termination checks passed |
 | Windows Server laboratory guest | Desktop booted with WHPX; bootstrap verified the RD Session Host role and running service |
 | Provider activation diagnostics | [21 service-origin events verified activation](docs/ACTIVATION-TRACE.md); four earlier failed captures retained |
-| Console virtual-display reference | [Source compiled privately](lab/idd-reference/README.md); driver startup, frame acquisition and isolation remain unverified |
+| Console virtual-display reference | [Guest lifecycle and frame acquisition observed](lab/idd-reference/RESULTS.md); cleanup verified after a cold boot; physical/session/input isolation unverified |
 | Server reference observation tools | Concurrent guest logons and a manual same-boot sign-out/cleanup cycle verified; helper observation timeout remains |
 | Creation of a real Windows seat | **Not implemented** |
 | Independent physical display and keyboard/mouse | **Not implemented** |
@@ -94,7 +94,7 @@ Both connection-helper runs exceeded their five-minute observation window. Manua
 
 The last complete local C++/CLI baseline passed **242 checks**, including **125 mock checks** for the optional [SDK bridge](docs/RDS-BRIDGE.md). One adversarial junction branch could not run locally because Windows denied its setup; it is not counted as passed. The current supervisor suite has **46 separate inert Python tests**, and local observer/reference/activation/boot-trace helpers total **175 inert PowerShell checks**. These totals do not include or substitute for live guest evidence.
 
-The latest verified [public Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43271355596/job/131368415784) passed **243 C++/CLI checks, 46 separate Python tests and 168 separate inert PowerShell checks**, with no failures or skips, at [`f2063b8`](https://github.com/kazah-png/RETSAR/commit/f2063b8). It additionally parsed five guest scripts without executing them. The DLL-permission correction adds seven later local checks whose next CI run is pending. Two separate local supervisor checks terminated only newly created sleeping helper processes. The [progress record](docs/PROGRESS.md) separates these scopes.
+The latest verified [public Windows CI run](https://github.com/kazah-png/RETSAR/actions/runs/43277022578/job/131388022533) passed **243 C++/CLI checks, 46 separate Python tests and 175 separate inert PowerShell checks**, with no failures or skips, at [`8b5f425`](https://github.com/kazah-png/RETSAR/commit/8b5f425439ef328964cbf51c9508c33b3626ffa6). It additionally parsed five guest scripts without executing them. Two separate local supervisor checks terminated only newly created sleeping helper processes. The [progress record](docs/PROGRESS.md) separates these scopes.
 
 Offline guest logs confirmed that the earlier setup failed in `oobeSystem`: the generated first-logon command was 1,318 characters, exceeding Microsoft's 1,024-character limit. The template now uses a fixed 309-character launcher, covered by a regression test. The corrected installation reached the Windows Server desktop. After a clean guest shutdown and verified disk/firmware checkpoint, an explicit WHPX launch also reached the desktop. The guest bootstrap emitted `rdsh-configured`, with the role installed and `TermService` running, while reporting `providerRegistered=false` and `createdSeat=false`. The later RDP reference observation does not establish provider readiness or a physical second seat. [CommandLine constraint](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands-synchronouscommand-commandline).
 
@@ -107,6 +107,8 @@ Current development, builds and laboratory assets are on D:. The supervisor perm
 These checks do not establish physical isolation, application compatibility, prolonged stability or an operational Windows provider. The journal's CRC detects corruption; it does not authenticate the file or prevent restoring an older complete version.
 
 [Windows CI](.github/workflows/windows.yml) rebuilds and tests the project in GitHub Actions. Its badge reports that workflow's status, not native multiseat availability.
+
+The separate [console IDD experiment](lab/idd-reference/RESULTS.md) verified a bounded device lifecycle and received 22 provider events, including a positive frame-acquisition event and a reported final counter of three acquired buffers. It is separate from the RDS listener experiment and created no new user session. The trace retains an initial recovered `DXGI_ERROR_ACCESS_LOST` and a final occurrence near teardown; moving pixels, sustained rendering and teardown causality were not demonstrated. Guest package/device/certificate removal and boot-setting restoration passed, and a separate cold boot verified their absence, the stopped trace and restored baseline boot setting.
 
 ## Contributing
 
