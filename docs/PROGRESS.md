@@ -4,11 +4,15 @@ Progress is organized by capability and evidence. A compiled component, simulate
 
 ## Child resumption and input diagnosis
 
+The [resumption and input CI run](https://github.com/kazah-png/RETSAR/actions/runs/43303118692/job/131479239551) at [`d1c8719`](https://github.com/kazah-png/RETSAR/commit/d1c87195d66ad5b364232f09527dc35ca00078a6) passed **1,451 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. The real session/input observations below are separate supervised experiments.
+
 The native child desktop was disconnected and later resumed as the same Windows session after the user completed Windows identity confirmation. The parent remained active. This establishes creation and interactive resumption on the observed host, while unattended authentication, owned-session logoff, physical device assignment and a production lifecycle remain open. [Observed client results](CHILD-SESSIONS.md).
 
 A fixed, nonce-correlated Task Scheduler action reached the active child and rendered its own test window. A diagnostic mouse movement reached that window, while its 64-bit input marker arrived with only the low 32 bits. The strict probe rejected that mismatch and sent no F24 pair; its own cursor was restored and its temporary task was removed. A repeat observation recorded no cursor or foreground change in 493 parent samples. The corrected positive 31-bit tag then passed exact mouse and F24 down/up receipt, with cursor restoration, a zero task result, task removal and 39 unchanged parent samples. This is bounded synthetic session-input evidence, not physical keyboard/mouse exclusivity. [Input experiment and limitations](CHILD-SESSION-INPUT.md).
 
 The combined local checks for this increment passed **1,451 C++/CLI checks**: the optional build covered the child and bridge contracts; the lifecycle and CLI suites were completed separately using a small C: test fixture because their existing file policy rejects a D: fixture. No adversarial branch was skipped. Build products and private reports stayed on D:. These local results are separate from the previously verified public CI run below.
+
+An isolated existing Zzen preview copy was subsequently observed running in the child session, with its application window visible and initialization logged. Its default is paused; no farming was activated. The temporary launch task was independently confirmed absent while the same application process remained. The validly signed official Roblox application subsequently started in the same child and displayed its home screen; its temporary launch task was also removed. Game operation, farming and prolonged use remain unverified.
 
 ## Native child desktop and remote-display preparation
 
