@@ -4,6 +4,8 @@ Progress is organized by capability and evidence. A compiled component, simulate
 
 ## General-purpose desktop console and product identity
 
+The [desktop preview CI run](https://github.com/kazah-png/RETSAR/actions/runs/43312642066/job/131512414242) at [`da9491c`](https://github.com/kazah-png/RETSAR/commit/da9491ccc636bcef6d184ba043c0ffd9d08991b6) passed **1,508 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. It successfully packaged and uploaded `RETSAR-desktop-preview-windows-x64`: the console, core CLI, child-session viewer, guide, license and SHA-256 manifest. The artifact is a developer snapshot, not a production installer.
+
 RETSAR now presents itself as a general-purpose Windows desktop project. The native **RETSAR Desktop** console separates Overview, Displays and Activity, reads current session/display state asynchronously, and offers guarded open/resume actions through the existing child-session client. A clearly labeled `--preview` mode uses sample data without collecting session or device inventory or changing Windows sessions. The earlier gaming/automation pilot remains one application example, not a product dependency.
 
 The project has an original two-desktop logo, scalable artwork, executable icons, a documented visual system, contributor guidance and structured issue templates. Public documentation distinguishes the working child-desktop preview from the unfinished physical multiseat and production lifecycle work. [Desktop guide](DESKTOP.md) · [Product scope](PRODUCT.md) · [Design system](DESIGN.md).
