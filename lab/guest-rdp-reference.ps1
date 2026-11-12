@@ -194,7 +194,7 @@ try {
             $receipt.userName -cne $userName -or $receipt.sid -notmatch '^S-1-5-21-\d+-\d+-\d+-\d+$') {
             throw 'Receipt identity does not match this guest console owner.'
         }
-        $marker = 'RETSAR RDP reference ' + $receipt.runId
+        $marker = 'RETSAR ref ' + $receipt.runId
         $users = @(Get-ReferenceUser)
         if ($users.Count -gt 1 -or ($users.Count -eq 1 -and
             ($users[0].SID.Value -cne $receipt.sid -or $users[0].Description -cne $marker))) {
@@ -243,7 +243,7 @@ try {
     $clientPath = Join-Path $env:SystemRoot 'System32\mstsc.exe'
     if (!(Test-Path -LiteralPath $clientPath -PathType Leaf)) { throw 'The guest mstsc client is missing.' }
     $runId = [guid]::NewGuid().ToString('N')
-    $marker = 'RETSAR RDP reference ' + $runId
+    $marker = 'RETSAR ref ' + $runId
     New-Item -ItemType Directory -Path $work | Out-Null
     $acl = [Security.AccessControl.DirectorySecurity]::new()
     $acl.SetAccessRuleProtection($true, $false)

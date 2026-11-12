@@ -133,13 +133,14 @@ namespace Retsar.GuestObservation {
     public sealed class Row {
         public uint sessionId;
         public int enumerationState, state;
-        public string stateName, station, user, domain;
-        public bool querySucceeded, stateChangedDuringQuery;
+        public string kind, identityQueryStatus, stateName, station, user, domain;
+        public bool queryAttempted, querySucceeded, stateChangedDuringQuery;
         public TimeValue logonTime, connectTime, disconnectTime, sampledTime;
     }
     public sealed class Issue {
         public string stage;
         public uint? sessionId;
+        public uint? returnedLevel, returnedSessionId, returnedBytes;
         public int win32Error;
         public Issue(string s, uint? id, int code) { stage = s; sessionId = id; win32Error = code; }
     }
@@ -148,6 +149,7 @@ namespace Retsar.GuestObservation {
         public bool truncated;
         public List<Row> evidence = new List<Row>();
         public List<Issue> errors = new List<Issue>();
+        public bool incomplete { get { return truncated || errors.Count != 0; } }
     }
     public static class Reader {
         [DllImport("wtsapi32.dll", ExactSpelling = true, SetLastError = true)]
@@ -180,27 +182,41 @@ namespace Retsar.GuestObservation {
                 for (int i = 0; i < Math.Min(count, 64u); ++i) {
                     var entry = (SessionEntry)Marshal.PtrToStructure(
                         IntPtr.Add(entries, i * stride), typeof(SessionEntry));
-                    var row = new Row { sessionId = entry.Id, enumerationState = entry.State,
-                        state = entry.State, stateName = StateName(entry.State) };
+                    var row = ClassifyEntry(entry.Id, entry.State);
                     result.evidence.Add(row);
+                    // WTSListen denotes a listener with no logged-on user. Keep the
+                    // enumeration evidence; no logon-identity query applies to it.
+                    if (row.kind == "listener") continue;
                     IntPtr buffer = IntPtr.Zero;
                     uint bytes;
                     try {
+                        row.queryAttempted = true;
+                        row.identityQueryStatus = "failed";
                         // WTSSessionInfoEx is WTS_INFO_CLASS value 25.
                         if (!WTSQuerySessionInformationW(IntPtr.Zero, entry.Id, 25, out buffer, out bytes)) {
                             result.errors.Add(new Issue("query-info-ex", entry.Id, Marshal.GetLastWin32Error()));
                             continue;
                         }
                         if (buffer == IntPtr.Zero || bytes < Marshal.SizeOf(typeof(InfoEx))) {
-                            result.errors.Add(new Issue("query-short-buffer", entry.Id, 0));
+                            result.errors.Add(new Issue("query-short-buffer", entry.Id, 0) {
+                                returnedBytes = bytes,
+                                returnedLevel = buffer != IntPtr.Zero && bytes >= 4
+                                    ? (uint?)unchecked((uint)Marshal.ReadInt32(buffer)) : null });
+                            continue;
+                        }
+                        uint level = unchecked((uint)Marshal.ReadInt32(buffer));
+                        if (level != 1) {
+                            result.errors.Add(ValidateInfoHeader(entry.Id, level, null, bytes));
                             continue;
                         }
                         var info = (InfoEx)Marshal.PtrToStructure(buffer, typeof(InfoEx));
-                        if (info.Level != 1 || info.Data.Id != entry.Id) {
-                            result.errors.Add(new Issue("query-level-or-id-mismatch", entry.Id, 0));
+                        var headerIssue = ValidateInfoHeader(entry.Id, info.Level, info.Data.Id, bytes);
+                        if (headerIssue != null) {
+                            result.errors.Add(headerIssue);
                             continue;
                         }
                         row.querySucceeded = true;
+                        row.identityQueryStatus = "queried";
                         row.state = info.Data.State;
                         row.stateName = StateName(row.state);
                         row.stateChangedDuringQuery = row.state != entry.State;
@@ -219,6 +235,20 @@ namespace Retsar.GuestObservation {
                 }
             } finally { if (entries != IntPtr.Zero) WTSFreeMemory(entries); }
             return result;
+        }
+        // Pure helpers also support inert classification/diagnostic checks.
+        public static Row ClassifyEntry(uint id, int state) {
+            bool listener = state == 6; // WTSListen, independent of the numeric session ID.
+            return new Row { sessionId = id, enumerationState = state, state = state,
+                stateName = StateName(state), kind = listener ? "listener" : "session",
+                identityQueryStatus = listener ? "not-applicable-listener" : "not-queried" };
+        }
+        public static Issue ValidateInfoHeader(uint requestedId, uint level,
+            uint? returnedId, uint bytes) {
+            if (level == 1 && returnedId == requestedId) return null;
+            return new Issue("query-level-or-id-mismatch", requestedId, 0) {
+                returnedLevel = level, returnedSessionId = level == 1 ? returnedId : null,
+                returnedBytes = bytes };
         }
         private static string StateName(int state) {
             string[] names = { "Active", "Connected", "ConnectQuery", "Shadow", "Disconnected",
@@ -243,7 +273,7 @@ namespace Retsar.GuestObservation {
     $report.truncated = $snapshot.truncated
     $report.evidence = @($snapshot.evidence.ToArray())
     $report.errors = @($snapshot.errors.ToArray())
-    $report.incomplete = $snapshot.truncated -or $snapshot.errors.Count -ne 0
+    $report.incomplete = $snapshot.incomplete
 } catch {
     # Fixed stages/codes avoid copying paths, credentials or unbounded exception text.
     $report.errors += [ordered]@{ stage = $stage; exceptionType = $_.Exception.GetType().Name }
