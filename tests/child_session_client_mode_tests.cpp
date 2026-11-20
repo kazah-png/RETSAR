@@ -1,4 +1,5 @@
 #include "../src/lab/child_session_client_mode.hpp"
+#include "../src/lab/child_session_setting_policy.hpp"
 #include "../src/lab/child_session_experiment_io.hpp"
 #include <iostream>
 #include <vector>
@@ -177,9 +178,83 @@ void InventoryObservationTests(){
         "incomplete API table cannot observe or admit inventory");
 }
 
+struct PreserveFixture {unsigned reads=0,sets=0;bool enabled=true,fail=false,throws=false;DWORD error=0;} preserveFixture;
+BOOL WINAPI PreserveSet(BOOL){++preserveFixture.sets;return TRUE;}
+BOOL WINAPI PreserveRead(BOOL* out){
+    ++preserveFixture.reads;
+    if(preserveFixture.throws)throw 1;
+    if(preserveFixture.fail){preserveFixture.error=ERROR_ACCESS_DENIED;return FALSE;}
+    *out=preserveFixture.enabled?TRUE:FALSE;return TRUE;
+}
+DWORD WINAPI PreserveError(){return preserveFixture.error;}
+void WINAPI PreserveSetError(DWORD value){preserveFixture.error=value;}
+void EnabledResumeTests(){
+    Request enabled{Mode::ResumeChild,3,true},ordinary{Mode::ResumeChild,3},fresh,invalid{Mode::NewChild,MAXDWORD,true};
+    Request parsed;const wchar_t* receipt=nullptr;
+    check(Parses({L"client",L"--resume-enabled-child-session",L"3",L"--receipt",L"synthetic.jsonl"},parsed,receipt)&&
+        parsed.mode==Mode::ResumeChild&&parsed.target==3&&parsed.preserveEnabled&&receipt,
+        "enabled resume is an explicit exact-target command");
+    check(Parses({L"client",L"--resume-child-session",L"3",L"--receipt",L"synthetic.jsonl"},parsed,receipt)&&!parsed.preserveEnabled,
+        "ordinary resume parsing never enables preservation");
+    for(const auto* id:{L"0",L"-1",L"4294967295",L"3x",L""})
+        check(Rejects({L"client",L"--resume-enabled-child-session",id,L"--receipt",L"synthetic.jsonl"}),"enabled resume rejects invalid target");
+    check(Rejects({L"client",L"--resume-enabled-child-session",L"3",L"--receipt",L""}),"enabled resume requires nonempty receipt");
+    check(Rejects({L"client",L"--connect-child",L"--resume-enabled-child-session",L"3",L"--receipt",L"synthetic.jsonl"}),"enabled resume cannot combine with creation");
+    check(std::string(ModeName(enabled))=="resume-enabled-existing-child"&&std::string(ModeName(ordinary))=="resume-existing-child",
+        "receipt mode distinguishes enabled preservation from ordinary resume");
+    auto snapshot=Baseline(3);snapshot.enabled.value=true;
+    check(AcceptSnapshot(enabled,snapshot)&&AcceptSnapshot(enabled,snapshot,true),"enabled resume verifies true baseline and preconnect state");
+    check(!AcceptSnapshot(enabled,snapshot,false),"explicit disabled expectation cannot override enabled-preservation policy");
+    check(!AcceptSnapshot(ordinary,snapshot)&&!AcceptSnapshot(fresh,snapshot),"default modes still reject an enabled baseline");
+    snapshot.enabled.value=false;check(!AcceptSnapshot(enabled,snapshot),"changed setting cannot admit enabled resume");
+    snapshot=Baseline(3);snapshot.enabled.value=true;snapshot.child.value=4;check(!AcceptSnapshot(enabled,snapshot),"changed child relationship rejected");
+    snapshot.child.succeeded=false;snapshot.child.error=ERROR_NOT_FOUND;check(!AcceptSnapshot(enabled,snapshot),"unknown child relationship never permits enabled resume");
+    snapshot=Baseline(3);snapshot.enabled.value=true;snapshot.console.value=4;check(!AcceptSnapshot(enabled,snapshot),"enabled resume requires attached parent console");
+    snapshot=Baseline(3);snapshot.enabled.value=true;snapshot.enabled.succeeded=false;check(!AcceptSnapshot(enabled,snapshot),"failed setting query rejects enabled resume");
+    snapshot=Baseline(3);snapshot.enabled.value=true;snapshot.apiAvailable=false;check(!AcceptSnapshot(enabled,snapshot),"missing APIs reject enabled resume");
+    snapshot=Baseline();snapshot.enabled.value=true;check(!AcceptSnapshot(invalid,snapshot,true),"creation cannot use preservation flag");
+    const std::vector<Row> rows={{0,WTSListen,false},{2,WTSActive,true},{3,WTSDisconnected,true}};
+    check(AcceptInventory(enabled,2,true,rows.data(),rows.size()),"enabled resume accepts exact disconnected child with no other users");
+    check(!AcceptInventory(enabled,2,false,rows.data(),rows.size()),"partial inventory rejects enabled resume");
+    auto changed=rows;changed.back().state=WTSActive;check(!AcceptInventory(enabled,2,true,changed.data(),changed.size()),"active target blocks a second enabled viewer");
+    changed=rows;changed.push_back({4,WTSDisconnected,true});check(!AcceptInventory(enabled,2,true,changed.data(),changed.size()),"foreign user blocks enabled resume");
+    changed=rows;changed[1].state=WTSDisconnected;check(!AcceptInventory(enabled,2,true,changed.data(),changed.size()),"inactive parent blocks enabled resume");
+    check(!AcceptInventory(invalid,2,true,rows.data(),rows.size())&&!AcceptObservedId(invalid,2,4,rows.data(),rows.size()),"invalid preservation policy rejected at inventory and outcome gates");
+    check(AcceptObservedId(enabled,2,3,rows.data(),rows.size())&&!AcceptObservedId(enabled,2,4,rows.data(),rows.size()),"enabled resume can observe only its original exact target");
+    const ToggleApi api{&PreserveSet,&PreserveRead,&PreserveError,&PreserveSetError};
+    preserveFixture={};auto result=VerifyPreservedEnabled(enabled,api);
+    check(result.verified&&result.result==S_OK&&preserveFixture.reads==1&&preserveFixture.sets==0,"enabled setting verified without setter");
+    preserveFixture={};result=VerifyPreservedEnabled(enabled,api,true);
+    check(!result.verified&&result.result==HRESULT_FROM_WIN32(ERROR_CANCELLED)&&!preserveFixture.reads&&!preserveFixture.sets,"cancellation before connection reads or changes nothing");
+    preserveFixture={};preserveFixture.enabled=false;result=VerifyPreservedEnabled(enabled,api);
+    check(!result.verified&&result.result==E_UNEXPECTED&&preserveFixture.sets==0,"false readback is rejected rather than enabled");
+    preserveFixture={};preserveFixture.fail=true;result=VerifyPreservedEnabled(enabled,api);
+    check(!result.verified&&result.result==HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED)&&preserveFixture.sets==0,"readback error preserved without repair mutation");
+    preserveFixture={};preserveFixture.throws=true;result=VerifyPreservedEnabled(enabled,api);
+    check(!result.verified&&result.read.exceptionThrown&&preserveFixture.sets==0,"readback exception cannot trigger setter or success");
+    preserveFixture={};result=VerifyPreservedEnabled(invalid,api);
+    check(!result.verified&&result.result==E_INVALIDARG&&!preserveFixture.reads&&!preserveFixture.sets,"invalid preservation mode invokes no API");
+    preserveFixture={};result=VerifyPreservedEnabled(ordinary,api);
+    check(!result.verified&&result.result==E_INVALIDARG&&!preserveFixture.reads&&!preserveFixture.sets,"ordinary mode cannot enter read-only preservation helper");
+    preserveFixture={};auto noSetter=api;noSetter.setEnabled=nullptr;result=VerifyPreservedEnabled(enabled,noSetter);
+    check(result.verified&&preserveFixture.reads==1&&preserveFixture.sets==0,"preservation does not even require a setter pointer");
+    preserveFixture={};auto missingRead=api;missingRead.isEnabled=nullptr;result=VerifyPreservedEnabled(enabled,missingRead);
+    check(!result.verified&&result.result==E_POINTER&&!preserveFixture.reads&&!preserveFixture.sets,"missing reader fails without mutation");
+    for(bool attempted:{false,true})for(bool restored:{false,true})
+        check(!NeedsSettingRestore(enabled,attempted,restored),"enabled-preservation cleanup never authorizes a setter even with inconsistent attempt flags");
+    check(NeedsSettingRestore(ordinary,true,false)&&!NeedsSettingRestore(ordinary,false,false)&&!NeedsSettingRestore(ordinary,true,true),"ordinary restore ownership behavior unchanged");
+    snapshot=Baseline(3);snapshot.enabled.value=true;
+    check(BaselineSettingVerified(enabled,snapshot,false,false,false),"preserved true baseline verifies after disconnect or connection failure");
+    check(!BaselineSettingVerified(enabled,snapshot,true,false,false)&&!BaselineSettingVerified(enabled,snapshot,false,true,true),"mutation flags cannot produce preserved-baseline success");
+    snapshot.enabled.value=false;check(!BaselineSettingVerified(enabled,snapshot,false,false,false),"unexpected disabled final state is not called preserved");
+    snapshot.enabled.value=true;snapshot.enabled.succeeded=false;check(!BaselineSettingVerified(enabled,snapshot,false,false,false),"failed final query cannot claim preserved state");
+    snapshot.enabled.succeeded=true;snapshot.enabled.attempted=false;check(!BaselineSettingVerified(enabled,snapshot,false,false,false),"unqueried final state remains unknown");
+    snapshot=Baseline(3);check(BaselineSettingVerified(ordinary,snapshot,true,true,true)&&!BaselineSettingVerified(ordinary,snapshot,true,true,false),"ordinary restored baseline still requires successful owned restoration");
+}
+
 }
 int main(){
-    ArgsTests();SnapshotTests();InventoryTests();InventoryObservationTests();
+    ArgsTests();SnapshotTests();InventoryTests();InventoryObservationTests();EnabledResumeTests();
     std::cout<<"Child session client mode: "<<passed<<" passed, "<<failed<<" failed; pure fixtures only, no Windows queries or connection.\n";
     return failed?1:0;
 }

@@ -1,8 +1,10 @@
 #include "child_session_experiment_io.hpp"
 #include "child_session_activex.hpp"
 #include "child_session_client_mode.hpp"
+#include "child_session_setting_policy.hpp"
 #include "child_session_client_diagnostics.hpp"
 #include "child_session_viewer_state.hpp"
+#include "child_session_viewport.hpp"
 #include <algorithm>
 #include <iostream>
 
@@ -12,14 +14,16 @@ using namespace seats::lab::child::experiment;
 using namespace seats::lab::child::ax;
 constexpr UINT StepMessage=WM_APP+41,StopMessage=WM_APP+42;
 constexpr UINT_PTR PollTimer=41;
+constexpr int SizingButton=1040;
 constexpr ULONGLONG ConnectionDeadlineMs=60000,DisconnectDeadlineMs=5000;
 struct App {
-    HWND window=nullptr;Site site;Events events;
+    HWND window=nullptr,sizingButton=nullptr;Site site;Events events;
+    bool sizingKnown=false,fitDesktop=false,changingSizing=false;HRESULT sizingResult=E_PENDING;
     Com<IOleObject> object;Com<IDispatch> dispatch;Com<ExtendedSettings> extended;
     Com<IOleInPlaceObject> inplace;Com<IConnectionPoint> point;
     DWORD cookie=0;HANDLE receipt=INVALID_HANDLE_VALUE;
     Snapshot baseline{};Inventory inventory{};client::Request request{};
-    bool enableAttempted=false,restoreAttempted=false,restored=false,finalBaselineRestored=false;
+    bool enableAttempted=false,restoreAttempted=false,restored=false,finalBaselineRestored=false,finalBaselinePreserved=false;
     bool connectAttempted=false,childPropertyVerified=false;
     bool connected=false,loggedIn=false,disconnected=false;
     bool connectingEvent=false,authenticationPrompt=false,residualChild=false;
@@ -42,7 +46,7 @@ struct App {
                <<"\",\"elapsedMs\":"<<(GetTickCount64()-diagnosticEpoch)
                <<",\"hresult\":"<<static_cast<ULONG>(result)<<",\"value\":";
             if(valuePresent)out<<value;else out<<"null";
-            out<<",\"connectionMode\":\""<<client::ModeName(request.mode)<<"\",\"requestedChildId\":";
+            out<<",\"connectionMode\":\""<<client::ModeName(request)<<"\",\"requestedChildId\":";
             if(request.mode==client::Mode::ResumeChild)out<<request.target;else out<<"null";
             out<<",\"resumedExistingChild\":"<<((observed&&request.mode==client::Mode::ResumeChild)?"true":"false");
             out<<",\"connectedEvent\":"<<(connected?"true":"false")
@@ -77,12 +81,42 @@ struct App {
         wcsncpy_s(status,text,_TRUNCATE);InvalidateHeader();
     }
     viewer::Presentation Presentation()const noexcept {
-        return viewer::Present({connectAttempted||connectingEvent,authenticationPrompt,connected,
-            loggedIn,observed,closing,finished,finalBaselineRestored,FAILED(failure)||journalFailed,residualChild});
+        auto result=viewer::Present({connectAttempted||connectingEvent,authenticationPrompt,connected,
+            loggedIn,observed,closing,finished,finalBaselineRestored||finalBaselinePreserved,FAILED(failure)||journalFailed,residualChild});
+        if(request.preserveEnabled){
+            if(finished){
+                if(!finalBaselinePreserved)result.message=L"Viewer disconnected. The existing Windows setting could not be verified. Check the diagnostic report.";
+                else if(FAILED(failure)||journalFailed)result.message=L"Connection stopped. The existing Windows setting remains enabled. Close this viewer, then refresh RETSAR Desktop.";
+                else result.message=residualChild?L"Viewer disconnected. The existing Windows setting remains enabled; your desktop may still be running.":L"Viewer disconnected. The existing Windows setting remains enabled.";
+            }else if(closing)result.message=L"Disconnecting this viewer. Preserving the existing Windows setting...";
+        }
+        return result;
     }
-    void UpdateStatus()noexcept{Status(Presentation().message);}
+    void LayoutSizing()noexcept {
+        if(!sizingButton||!window)return;
+        RECT client{};GetClientRect(window,&client);
+        MoveWindow(sizingButton,std::max(0,static_cast<int>(client.right)-Scale(194)),Scale(82),Scale(170),Scale(30),TRUE);
+        SendMessageW(sizingButton,WM_SETFONT,reinterpret_cast<WPARAM>(bodyFont),TRUE);
+        SetWindowTextW(sizingButton,sizingKnown&&fitDesktop?L"Actual size":L"Fit desktop");
+        EnableWindow(sizingButton,observed&&!initializing&&!closing&&!finished&&!cleanupStarted&&!changingSizing);
+    }
+    void UpdateStatus()noexcept{Status(Presentation().message);LayoutSizing();}
+    void ApplySizing(bool fit)noexcept {
+        changingSizing=true;LayoutSizing();
+        const auto result=viewport::SetFit(dispatch.value,fit,outboundDepth);
+        sizingKnown=result.known;fitDesktop=result.fit;sizingResult=result.result;
+        changingSizing=false;
+        Record(fit?"SmartSizingFit":"SmartSizingActualSize",result.result,result.fit?1:0,result.known);
+        LayoutSizing();InvalidateHeader();
+    }
+    void ToggleSizing()noexcept {
+        if(!observed||initializing||closing||finished||cleanupStarted||outboundDepth||changingSizing)return;
+        ApplySizing(!sizingKnown||!fitDesktop);
+        if(stopRequested||journalFailed)BeginStop(journalFailed?"receipt-write":failureStage,
+            journalFailed?HRESULT_FROM_WIN32(ERROR_WRITE_FAULT):failure);
+    }
     void ConfigureAppearance(UINT value)noexcept {
-        dpi=value?value:96;site.headerHeight=Scale(88);
+        dpi=value?value:96;site.headerHeight=Scale(126);
         // Shared icon uses the project's canonical resource; Windows owns its lifetime.
         brandIcon=static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr),MAKEINTRESOURCEW(101),
             IMAGE_ICON,Scale(32),Scale(32),LR_SHARED));
@@ -94,7 +128,7 @@ struct App {
         if(title){if(titleFont)DeleteObject(titleFont);titleFont=title;}
         if(body){if(bodyFont)DeleteObject(bodyFont);bodyFont=body;}
         if(caption){if(smallFont)DeleteObject(smallFont);smallFont=caption;}
-        InvalidateHeader();
+        LayoutSizing();InvalidateHeader();
     }
     void PaintHeader(HDC dc)noexcept {
         const int saved=SaveDC(dc);RECT bounds=Header();
@@ -127,6 +161,11 @@ struct App {
             font(bodyFont);SetTextColor(dc,RGB(155,173,206));
             text(sessions,{left,Scale(47),right,Scale(72)},DT_RIGHT);
         }
+        font(bodyFont);SetTextColor(dc,RGB(155,173,206));
+        const wchar_t* display=sizingKnown?(fitDesktop?L"Display: Fit to window":L"Display: Actual size"):
+            L"Display: Sizing unavailable";
+        if(FAILED(sizingResult)&&sizingResult!=E_PENDING)display=L"Display change was not confirmed. You can retry.";
+        text(display,{Scale(24),Scale(84),bounds.right-Scale(214),Scale(110)},DT_LEFT);
         SetDCBrushColor(dc,RGB(21,30,49));RECT line{0,bounds.bottom-1,bounds.right,bounds.bottom};
         FillRect(dc,&line,static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         if(saved)RestoreDC(dc,saved);
@@ -218,6 +257,10 @@ struct App {
         Variant advanced;
         if(FAILED(hr=Step("AdvancedSettings",Invoke(dispatch.value,L"AdvancedSettings9",DISPATCH_PROPERTYGET,nullptr,&advanced.value))))return hr;
         if(advanced.value.vt!=VT_DISPATCH||!advanced.value.pdispVal)return Step("AdvancedSettingsType",DISP_E_TYPEMISMATCH);
+        // Display scaling is optional; a failure is shown, never mistaken for
+        // verified fit or used to change session/authentication behavior.
+        ApplySizing(true);
+        if(journalFailed)return Step("receipt-write",HRESULT_FROM_WIN32(ERROR_WRITE_FAULT));
         // Explicit per-connection CredSSP support; no authentication policy or
         // credentials are changed. Child mode remains independently mandatory.
         // https://learn.microsoft.com/windows/win32/termserv/imsrdpclientadvancedsettings6-enablecredsspsupport
@@ -250,17 +293,23 @@ struct App {
            current.caller.value!=baseline.caller.value||current.console.value!=baseline.console.value) {
             Step("pre-enable-guard",HRESULT_FROM_WIN32(ERROR_BUSY));return false;
         }
-        if(!Record("enable-intent"))return false;
-        enableAttempted=true;
-        const auto enabled=toggle_detail::Set(SystemToggleApi(),TRUE);
-        const auto read=toggle_detail::Read(SystemToggleApi());
-        Step("enable-result",enabled.succeeded?S_OK:HRESULT_FROM_WIN32(enabled.error?enabled.error:ERROR_GEN_FAILURE));
-        Record("enable-last-error-observed",S_OK,static_cast<LONG>(enabled.error),!enabled.succeeded);
-        if(!enabled.succeeded||!read.succeeded||!read.value) {
-            Step("enable-readback",read.succeeded?E_UNEXPECTED:HRESULT_FROM_WIN32(read.error?read.error:ERROR_GEN_FAILURE));
-            return false;
+        if(request.preserveEnabled){
+            const auto existing=client::VerifyPreservedEnabled(request,SystemToggleApi(),stopRequested);
+            if(FAILED(Step("preserve-enabled-readback",existing.result)))return false;
+        }else{
+            if(!Record("enable-intent"))return false;
+            enableAttempted=true;
+            const auto enabled=toggle_detail::Set(SystemToggleApi(),TRUE);
+            const auto read=toggle_detail::Read(SystemToggleApi());
+            Step("enable-result",enabled.succeeded?S_OK:HRESULT_FROM_WIN32(enabled.error?enabled.error:ERROR_GEN_FAILURE));
+            Record("enable-last-error-observed",S_OK,static_cast<LONG>(enabled.error),!enabled.succeeded);
+            if(!enabled.succeeded||!read.succeeded||!read.value) {
+                Step("enable-readback",read.succeeded?E_UNEXPECTED:HRESULT_FROM_WIN32(read.error?read.error:ERROR_GEN_FAILURE));
+                return false;
+            }
+            if(FAILED(Step("enable-readback",S_OK)))return false;
         }
-        if(FAILED(Step("enable-readback",S_OK))||FAILED(Step("pre-connect-child-property",VerifyChildProperty(false)))||
+        if(FAILED(Step("pre-connect-child-property",VerifyChildProperty(false)))||
            FAILED(Step("pre-connect-ignore-server-mouse",
                 VerifyExtendedTrue(extended.value,L"IgnoreServerGeneratedMouseMoves",false))))return false;
         const auto beforeConnect=Query(SystemApi());
@@ -351,25 +400,31 @@ struct App {
         point.reset();events.callback=nullptr;
         if(object){Record("CloseOwnObject",object->Close(OLECLOSE_NOSAVE));object->SetClientSite(nullptr);}
         site.inplace=nullptr;site.active.reset();inplace.reset();extended.reset();dispatch.reset();object.reset();
-        if(enableAttempted&&!restoreAttempted) {
+        if(client::NeedsSettingRestore(request,enableAttempted,restoreAttempted)) {
             restoreAttempted=true;Record("restore-intent");
             const auto restore=toggle_detail::Set(SystemToggleApi(),FALSE);
-            const auto read=toggle_detail::Read(SystemToggleApi());
-            restored=restore.succeeded&&read.succeeded&&!read.value;
             Record("restore-result",restore.succeeded?S_OK:HRESULT_FROM_WIN32(restore.error?restore.error:ERROR_GEN_FAILURE));
             Record("restore-last-error-observed",S_OK,static_cast<LONG>(restore.error),!restore.succeeded);
+            const auto read=toggle_detail::Read(SystemToggleApi());
+            restored=restore.succeeded&&read.succeeded&&!read.value;
             Record("restore-readback",read.succeeded?S_OK:HRESULT_FROM_WIN32(read.error?read.error:ERROR_GEN_FAILURE),read.value?1:0,read.succeeded);
         }
         const auto final=Query(SystemApi());
-        const bool baselineRestored=final.enabled.succeeded&&!final.enabled.value&&(!enableAttempted||restored);
+        const bool baselineVerified=client::BaselineSettingVerified(request,final,enableAttempted,restoreAttempted,restored);
+        const bool baselineRestored=!request.preserveEnabled&&baselineVerified;
         finalBaselineRestored=baselineRestored;
+        finalBaselinePreserved=request.preserveEnabled&&baselineVerified;
+        if(request.preserveEnabled)Record("preserve-enabled-final-readback",finalBaselinePreserved?S_OK:E_UNEXPECTED,
+            final.enabled.value?1:0,final.enabled.succeeded);
         try {
             std::ostringstream out;out<<"{\"schema\":\"retsar.child-session-client-final.v1\","
-                <<"\"connectionMode\":\""<<client::ModeName(request.mode)<<"\","
+                <<"\"connectionMode\":\""<<client::ModeName(request)<<"\","
                 <<"\"resumedExistingChild\":"<<((observed&&request.mode==client::Mode::ResumeChild)?"true":"false")
                 <<",\"observedChildSession\":"<<(observed?"true":"false")
                 <<",\"restoreAttempted\":"<<(restoreAttempted?"true":"false")
                 <<",\"baselineRestored\":"<<(baselineRestored?"true":"false")
+                <<",\"baselinePreserved\":"<<(finalBaselinePreserved?"true":"false")
+                <<",\"settingMutationOwned\":"<<(enableAttempted?"true":"false")
                 <<",\"failureStage\":\""<<failureStage<<"\",\"failureHresult\":"<<static_cast<ULONG>(failure)
                 <<",\"journalFailed\":"<<(journalFailed?"true":"false")
                 <<",\"finalStatus\":"<<ToJson(final)<<",\"logoffAttempted\":false,\"physicalSeatVerified\":false}";
@@ -395,7 +450,16 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
     if(!app)return DefWindowProcW(window,message,wp,lp);
     try {
         switch(message) {
-        case WM_CREATE:app->ConfigureAppearance(GetDpiForWindow(window));return 0;
+        case WM_CREATE:
+            app->ConfigureAppearance(GetDpiForWindow(window));
+            app->sizingButton=CreateWindowExW(0,L"BUTTON",L"Fit desktop",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
+                0,0,0,0,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(SizingButton)),GetModuleHandleW(nullptr),nullptr);
+            if(!app->sizingButton)return -1;
+            app->LayoutSizing();return 0;
+        case WM_COMMAND:
+            if(LOWORD(wp)==SizingButton&&HIWORD(wp)==BN_CLICKED&&reinterpret_cast<HWND>(lp)==app->sizingButton)
+                app->ToggleSizing();
+            return 0;
         case WM_ERASEBKGND: {
             const HDC dc=reinterpret_cast<HDC>(wp);RECT area{};GetClientRect(window,&area);
             const COLORREF previous=SetDCBrushColor(dc,RGB(11,16,32));
@@ -422,6 +486,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
             return DefWindowProcW(window,message,wp,lp);
         case FrameSyncMessage:app->NotifyFrameActivation();return 0;
         case WM_SIZE:
+            app->LayoutSizing();
             if(app->inplace&&!app->initializing&&!app->closing&&!app->cleanupStarted&&!app->outboundDepth) {
                 RECT area=app->site.Area();
                 ++app->outboundDepth;app->inplace->SetObjectRects(&area,&area);--app->outboundDepth;
@@ -469,12 +534,15 @@ int wmain(int argc,wchar_t* argv[]) {
         std::cout<<"RETSAR Desktop Viewer\n"
             <<"Usage: RETSAR-child-session-client.exe --connect-child --receipt <new.jsonl>\n"
             <<"       RETSAR-child-session-client.exe --resume-child-session <id> --receipt <new.jsonl>\n"
+            <<"       RETSAR-child-session-client.exe --resume-enabled-child-session <id> --receipt <new.jsonl>\n"
             <<"Explicit mode opens or resumes one local Windows child desktop.\n"
             <<"Receipt must be new under D:\\RETSAR-Lab\\RETSAR\\private\\.\n"
             <<"Connection deadline: 60 seconds. An observed connection stays open until closed.\n"
             <<"Closing disconnects only this client and restores the original disabled setting.\n"
             <<"Resume requires an exact existing disconnected child; it never claims new creation.\n"
+            <<"Enabled resume preserves the enabled baseline and never calls the setting setter, including cleanup.\n"
             <<"Remaining child IDs are reported, never logged off automatically.\n"
+            <<"Display requests fit by default; the header reports verified mode and toggles actual size without reconnecting.\n"
             <<"No ordinary RDP fallback, credentials, fullscreen or physical device assignment.\n"
             <<"Help makes no COM, WTS, window or setting changes.\n";return 0;
     }
@@ -507,9 +575,10 @@ int wmain(int argc,wchar_t* argv[]) {
            !finalSize||finalSize>=std::size(finalPath)||_wcsicmp(finalPath,expected.c_str())!=0)return 4;
         std::ostringstream initial;initial<<"{\"schema\":\"retsar.child-session-client-owner.v1\",";
         if(!TokenIdentity(initial))return 4;
-        initial<<",\"connectionMode\":\""<<client::ModeName(request.mode)<<"\",\"requestedChildId\":";
+        initial<<",\"connectionMode\":\""<<client::ModeName(request)<<"\",\"requestedChildId\":";
         if(request.mode==client::Mode::ResumeChild)initial<<request.target;else initial<<"null";
-        initial<<",\"baseline\":"<<ToJson(baseline)<<",\"inventory\":"<<InventoryJson(inventory)
+        initial<<",\"settingPolicy\":\""<<(request.preserveEnabled?"preserve-existing-enabled":"enable-and-restore-disabled")<<"\""
+            <<",\"baseline\":"<<ToJson(baseline)<<",\"inventory\":"<<InventoryJson(inventory)
             <<",\"childAbsenceProven\":"<<(ClassifyChild(baseline)==ChildState::Absent?"true":"false")
             <<",\"connectionDeadlineMs\":"<<ConnectionDeadlineMs<<",\"physicalSeatVerified\":false}";
         if(!Append(receipt.value,initial.str()).succeeded)return 4;
@@ -544,7 +613,7 @@ int wmain(int argc,wchar_t* argv[]) {
             else if(!app.stopRequested&&SUCCEEDED(app.failure)&&!app.EnableAndConnect())
                 app.BeginStop(app.failureStage,FAILED(app.failure)?app.failure:E_FAIL);
         }
-        app.initializing=false;
+        app.initializing=false;app.LayoutSizing();
         PostMessageW(window,FrameSyncMessage,0,0);
         if(app.stopRequested||FAILED(app.failure))app.BeginStop(app.failureStage,app.failure);
         MSG message{};BOOL messageResult=0;
@@ -554,7 +623,7 @@ int wmain(int argc,wchar_t* argv[]) {
             // outer boundary even after the observation timer has stopped.
             app.NotifyFrameActivation();
             HRESULT translated=S_FALSE;
-            const bool ownTarget=message.hwnd==window||IsChild(window,message.hwnd);
+            const bool ownTarget=message.hwnd!=app.sizingButton&&(message.hwnd==window||IsChild(window,message.hwnd));
             if(KeyboardMessage(message.message)&&ownTarget&&app.site.active&&!app.closing&&
                !app.cleanupStarted&&GetForegroundWindow()==window) {
                 translated=TranslateOwnedAccelerator(app.site.active.value,&message,app.outboundDepth);
@@ -569,7 +638,7 @@ int wmain(int argc,wchar_t* argv[]) {
         }
         if(!app.finished)app.BeginStop("message-loop-ended",app.failure);
         app.Cleanup();
-        return app.observed&&app.finalBaselineRestored&&!app.journalFailed&&SUCCEEDED(app.failure)?0:2;
+        return app.observed&&(app.finalBaselineRestored||app.finalBaselinePreserved)&&!app.journalFailed&&SUCCEEDED(app.failure)?0:2;
     }catch(...){std::cerr<<"Desktop viewer failed; inspect the private receipt.\n";return 5;}
 }
 

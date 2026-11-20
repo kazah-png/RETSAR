@@ -14,6 +14,10 @@ Read the [Desktop guide](https://github.com/kazah-png/RETSAR/blob/main/docs/DESK
 
 The preview has demonstrated native child-desktop creation/resumption and a supervised application pilot on the tested host. Physical display/input exclusivity, crash recovery, broad application compatibility and prolonged stability remain in development. Closing the console leaves open desktops alone; closing the viewer disconnects, rather than logs off, its child.
 
+For an eligible disconnected child, **Resume desktop** chooses the mode matching the observed original setting. Ordinary resumption attempts to restore a disabled baseline on close; enabled-baseline resumption preserves the enabled setting without changing it. A completed cleanup receipt and readback are required to verify either outcome. This is not a guarantee of crash recovery or completion of an earlier interrupted cleanup.
+
+A supervised enabled-baseline trial resumed the existing Notepad desktop with Fit to window visibly active. The user confirmed the sizing buttons and an additional close/resume cycle retaining Notepad; the inspected receipts did not corroborate those additional actions, so no verified close-cycle result is claimed. This does not establish prolonged stability or compatibility on other hosts.
+
 For a clearly labelled interface demonstration without session or device inventory, run `RETSAR-Desktop.exe --preview`.
 
 [Source and verified progress](https://github.com/kazah-png/RETSAR) · [MIT license](https://github.com/kazah-png/RETSAR/blob/main/LICENSE)

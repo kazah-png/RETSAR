@@ -20,7 +20,7 @@ int main(){
  variant=base;variant.viewerFilePresent=false;check(Decide(variant).availability==Availability::MissingComponents,"missing viewer gets a setup explanation");
  variant=base;variant.receiptDirectoryPresent=false;check(!CanLaunch(Decide(variant)),"missing receipt folder blocks launch");
  Facts resume=base;resume.session.child={true,true,0,3};resume.rows.push_back({3,WTSDisconnected,true});
- auto decision=Decide(resume);check(decision.action==Action::ResumeDesktop&&decision.child==3,"exact disconnected related child offers resumption");
+ auto decision=Decide(resume);check(decision.action==Action::ResumeDesktop&&decision.availability==Availability::ReadyToResume&&decision.child==3,"exact disconnected related child offers resumption");
  variant=resume;variant.rows.back().state=WTSActive;check(!CanLaunch(Decide(variant)),"active child is never passed to resume mode");
  variant=resume;variant.session.child.value=4;check(!CanLaunch(Decide(variant)),"different child relationship blocks resumption");
  variant=resume;variant.rows.back().hasUser=false;check(!CanLaunch(Decide(variant)),"disconnected row without user is not resumable");
@@ -50,6 +50,64 @@ int main(){
  check(!CanLaunch(Decide(variant)),"a listener never masks a failed applicable-session query");
  variant=base;variant.rows.push_back({3,65536,true});
  check(!CanLaunch(Decide(variant)),"an unfamiliar state with a signed-in user still blocks launch");
+ // Returning to the console never performs a connection action. Bursts of
+ // activation and nested launch messages yield only one fresh observation.
+ ActivationRefresh activation;
+ check(!activation.Schedule(false,false,false),"idle console schedules no periodic work");
+ activation.SetActive(true,false,false);
+ check(activation.Schedule(false,false,false),"returning to console queues one read-only observation");
+ activation.SetActive(true,false,false);
+ check(!activation.Schedule(false,false,false),"duplicate activation cannot queue another message");
+ check(activation.Take(false,false,false)&&!activation.Take(false,false,false),"posted observation is consumed exactly once");
+ check(!activation.Schedule(false,false,false),"completion does not create an idle refresh loop");
+ activation.SetActive(false,false,false);activation.SetActive(true,false,false);
+ check(!activation.Schedule(true,false,false),"busy refresh or launch defers the activation request");
+ check(activation.Schedule(false,false,false),"request survives the busy interval");
+ check(!activation.Take(true,false,false),"a nested busy message cannot begin inventory work");
+ check(activation.Schedule(false,false,false)&&activation.Take(false,false,false),"deferred message is consumed after the busy interval ends");
+ activation.SetActive(false,false,false);activation.SetActive(true,false,false);
+ check(activation.Schedule(false,false,false),"second genuine return schedules new observation");
+ activation.SetActive(false,false,false);
+ check(!activation.Take(false,false,false)&&!activation.Schedule(false,false,false),"leaving before dispatch avoids background activation work");
+ activation.SetActive(true,false,false);
+ check(activation.Schedule(false,false,false),"returning again recovers the pending observation");
+ activation.PostFailed();
+ check(activation.Schedule(false,false,false)&&activation.Take(false,false,false),"failed post retains the request for a later boundary");
+ activation.SetActive(false,false,false);activation.SetActive(true,true,false);
+ check(!activation.Schedule(false,true,false)&&!activation.Take(false,true,false),"design preview never schedules a Windows inventory");
+ activation.SetActive(true,false,false);activation.Schedule(false,false,false);
+ activation.SetActive(false,false,true);
+ check(!activation.Take(false,false,true)&&!activation.Schedule(false,false,true),"shutdown cancels pending and posted activation work");
+ variant=resume;variant.verifiedViewerPresent=true;
+ check(Decide(variant).availability==Availability::ViewerOpen&&!CanLaunch(Decide(variant)),"visible viewer blocks resume even with a disconnected child");
+ variant=resume;variant.viewerFilePresent=false;
+ check(Decide(variant).availability==Availability::MissingComponents&&!CanLaunch(Decide(variant)),"resumption explanation is unavailable until components are ready");
+ variant=resume;variant.inventoryComplete=false;
+ check(Decide(variant).availability!=Availability::ReadyToResume&&!CanLaunch(Decide(variant)),"incomplete inventory never advertises recoverable desktop");
+ // Enabled resumption preserves the global baseline and still requires every
+ // existing relation/inventory guard. The GUI selects a distinct explicit mode.
+ Facts enabledResume=resume;enabledResume.session.enabled.value=true;
+ decision=Decide(enabledResume);
+ check(decision.action==Action::ResumeEnabledDesktop&&decision.child==3&&decision.availability==Availability::ReadyToResumeEnabled,"enabled exact child offers explicit baseline-preserving resume");
+ check(IsResume(decision)&&CanLaunch(decision)&&std::wcscmp(LaunchMode(decision),L"--resume-enabled-child-session")==0,"enabled resume keeps target and selects its separate viewer mode");
+ check(std::wcscmp(LaunchMode(Decide(resume)),L"--resume-child-session")==0&&!IsResume(Decide(base)),"disabled resume and new desktop retain their original modes");
+ check(LaunchMode({})==nullptr,"non-launch decision has no executable mode");
+ variant=enabledResume;variant.verifiedViewerPresent=true;check(!CanLaunch(Decide(variant)),"existing viewer also blocks baseline-preserving resume");
+ variant=enabledResume;variant.inventoryComplete=false;check(!CanLaunch(Decide(variant)),"enabled setting does not mask incomplete inventory");
+ variant=enabledResume;variant.rows.push_back({4,WTSDisconnected,true});check(!CanLaunch(Decide(variant)),"enabled resume rejects another signed-in user");
+ variant=enabledResume;variant.rows.push_back({3,WTSDisconnected,true});check(!CanLaunch(Decide(variant)),"enabled resume rejects duplicate child IDs");
+ variant=enabledResume;variant.session.child.value=4;check(!CanLaunch(Decide(variant)),"enabled resume cannot choose an unrelated child");
+ variant=enabledResume;variant.session.child.succeeded=false;check(!CanLaunch(Decide(variant)),"enabled resume requires successful parent-child query");
+ variant=enabledResume;variant.session.console.value=4;check(!CanLaunch(Decide(variant)),"enabled resume requires current console parent");
+ variant=enabledResume;variant.rows[1].state=WTSDisconnected;check(!CanLaunch(Decide(variant)),"enabled resume rejects disconnected parent");
+ variant=enabledResume;variant.rows.back().hasUser=false;check(!CanLaunch(Decide(variant)),"enabled resume rejects unoccupied child");
+ variant=enabledResume;variant.viewerFilePresent=false;check(!CanLaunch(Decide(variant)),"enabled resume still needs the local viewer");
+ variant=enabledResume;variant.receiptDirectoryPresent=false;check(!CanLaunch(Decide(variant)),"enabled resume still needs a receipt directory");
+ variant=enabledResume;variant.session.enabled.succeeded=false;check(!CanLaunch(Decide(variant)),"enabled baseline must be known");
+ for(const auto state:{WTSActive,WTSConnected,WTSConnectQuery,WTSShadow,WTSIdle,WTSListen,WTSReset,WTSDown,WTSInit}) {
+     variant=enabledResume;variant.rows.back().state=state;
+     check(!CanLaunch(Decide(variant)),"enabled target must be exactly disconnected");
+ }
  check(BoundedPercent(0)==0&&BoundedPercent(100)==100&&BoundedPercent(MAXDWORD)==100,"out-of-range memory percentage cannot overflow the display");
  std::cout<<"Desktop model: "<<passed<<" passed, "<<failed<<" failed; pure observations only, no Windows query or launch.\n";return failed?1:0;
 }

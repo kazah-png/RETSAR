@@ -15,7 +15,7 @@
 
 namespace {
 using namespace retsar::desktop;
-constexpr UINT RefreshReady=WM_APP+41;
+constexpr UINT RefreshReady=WM_APP+41,ActivationRefreshReady=WM_APP+42;
 constexpr UINT_PTR LaunchTimer=72;
 constexpr int NavOverview=1010,NavDisplays=1011,NavActivity=1012,RefreshButton=1020,OpenButton=1021,GuideButton=1022;
 constexpr COLORREF Background=RGB(11,16,32),Sidebar=RGB(8,13,26),Surface=RGB(21,30,49),Border=RGB(39,53,77);
@@ -115,7 +115,8 @@ struct BackBuffer {
     }
 };
 struct App {
-    HWND window=nullptr;HINSTANCE instance=nullptr;HICON appIcon=nullptr;UINT dpi=96;int tab=0;bool preview=false,refreshing=false,launchPending=false;
+    HWND window=nullptr;HINSTANCE instance=nullptr;HICON appIcon=nullptr;UINT dpi=96;int tab=0;bool preview=false,refreshing=false,launchPending=false,closing=false;
+    ActivationRefresh activationRefresh;
     Handle launchedViewer;bool watchingLaunch=false;ULONGLONG launchedAt=0,launchedCreation=0;DWORD launchedPid=0,launchedParent=MAXDWORD,launchedChild=MAXDWORD;
     std::wstring viewerPath;Observation observation;std::shared_ptr<QueryBox> box=std::make_shared<QueryBox>();
     std::vector<std::wstring> activity;std::array<HWND,6> buttons{};HWND statusLabel=nullptr,detailLabel=nullptr;HBRUSH backgroundBrush=CreateSolidBrush(Background);HFONT title=nullptr,heading=nullptr,body=nullptr,fontSmall=nullptr;BackBuffer buffer;
@@ -134,6 +135,10 @@ struct App {
     int CardHeight()const noexcept{return Compact()?142:188;}
     int ActionY()const noexcept{return Compact()?290:370;}
     int DetailY()const noexcept{return Compact()?Height()-106:614;}
+    void ScheduleActivationRefresh(){
+        if(activationRefresh.Schedule(refreshing||launchPending,preview,closing)&&
+           !PostMessageW(window,ActivationRefreshReady,0,0))activationRefresh.PostFailed();
+    }
     void Layout(){
         const int w=Width(),h=Height(),actionY=ActionY();
         MoveWindow(buttons[0],P(18),P(154),P(176),P(44),TRUE);MoveWindow(buttons[1],P(18),P(208),P(176),P(44),TRUE);MoveWindow(buttons[2],P(18),P(262),P(176),P(44),TRUE);
@@ -147,9 +152,10 @@ struct App {
         SetWindowTextW(detailLabel,preview?L"Sample desktops and displays. No system inventory was collected.":AvailabilityDetail(decision.availability));
         EnableWindow(buttons[4],!preview&&decision.action!=Action::None);
         EnableWindow(buttons[3],!refreshing&&!launchPending&&!preview);InvalidateRect(window,nullptr,FALSE);
+        ScheduleActivationRefresh();
     }
     void Refresh(){
-        if(refreshing||launchPending||preview)return;
+        if(refreshing||launchPending||preview||closing)return;
         refreshing=true;Layout();const auto mailbox=box;const auto path=viewerPath;const auto target=window;
         try{std::thread([mailbox,path,target]{
             std::unique_ptr<Observation> value;
@@ -220,7 +226,8 @@ struct App {
         if(FAILED(CoCreateGuid(&id))||!StringFromGUID2(id,guid,static_cast<int>(std::size(guid)))){launchPending=false;Note(L"Could not prepare a connection receipt.");Layout();return;}
         std::wstring token;for(wchar_t c:guid)if((c>=L'0'&&c<=L'9')||(c>=L'a'&&c<=L'f')||(c>=L'A'&&c<=L'F'))token+=c;
         const std::wstring receipt=std::wstring(ReceiptDirectory)+L"\\desktop-"+token+L".jsonl";
-        std::wstring args=decision.action==Action::ResumeDesktop?L"--resume-child-session "+std::to_wstring(decision.child):L"--connect-child";
+        std::wstring args=LaunchMode(decision);
+        if(IsResume(decision))args+=L" "+std::to_wstring(decision.child);
         args+=L" --receipt \""+receipt+L"\"";
         Handle pinned;pinned.value=CreateFileW(viewerPath.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
         if(pinned.value==INVALID_HANDLE_VALUE){launchPending=false;Note(L"The desktop viewer is unavailable. Rebuild it and refresh.");Layout();return;}
@@ -235,7 +242,7 @@ struct App {
             launchedViewer.value=execute.hProcess;execute.hProcess=nullptr;
             if(launchedViewer.value){
                 launchedAt=GetTickCount64();launchedPid=GetProcessId(launchedViewer.value);launchedCreation=Creation(launchedViewer.value);
-                launchedParent=observation.facts.session.caller.value;launchedChild=decision.action==Action::ResumeDesktop?decision.child:MAXDWORD;
+                launchedParent=observation.facts.session.caller.value;launchedChild=IsResume(decision)?decision.child:MAXDWORD;
                 watchingLaunch=SetTimer(window,LaunchTimer,1500,nullptr)!=0;
                 if(!watchingLaunch)FinishLaunch(launch::Result::Unavailable);
             }else Note(L"The launch returned no process handle. Use Refresh to check its state.");
@@ -292,7 +299,7 @@ struct App {
     }
     void PaintActivity(HDC dc){
         const int content=Width()-268,h=Height();TextAt(dc,L"Activity",R(240,Compact()?29:43,content-140,42),title,Text);
-        TextAt(dc,L"Local observations from this window. No background polling.",R(240,Compact()?80:94,content,24),body,Muted);
+        TextAt(dc,L"Local observations on return, refresh and bounded startup checks.",R(240,Compact()?80:94,content,24),body,Muted);
         Round(dc,R(240,145,content,100),Surface,Border);
         TextAt(dc,L"Computer memory",R(262,165,content-44,25),heading,Text);
         std::wstring memory=observation.memoryKnown?std::to_wstring(BoundedPercent(observation.memoryLoad))+L"% in use across the whole computer":L"Not available";
@@ -307,7 +314,7 @@ struct App {
         Chip(dc,preview?L"DESIGN PREVIEW":L"RESEARCH PREVIEW",18,104,176,preview?Amber:Accent);
         if(h>=500)TextAt(dc,L"One computer.\nMore room to work.",R(24,h-166,166,55),body,Muted);
         if(tab==0)PaintOverview(dc);else if(tab==1)PaintDisplays(dc);else PaintActivity(dc);
-        Fill(dc,R(240,h-42,w-268,1),Border);TextAt(dc,preview?L"Sample data only":refreshing?L"Refreshing...":L"Read-only overview  \u00b7  Refresh on demand",R(240,h-26,w-268,18),fontSmall,Muted);
+        Fill(dc,R(240,h-42,w-268,1),Border);TextAt(dc,preview?L"Sample data only":refreshing?L"Refreshing...":L"Read-only overview  \u00b7  Updates when you return",R(240,h-26,w-268,18),fontSmall,Muted);
     }
     void DrawButton(const DRAWITEMSTRUCT& item){
         const bool selected=(item.CtlID>=NavOverview&&item.CtlID<=NavActivity&&static_cast<int>(item.CtlID-NavOverview)==tab);
@@ -336,7 +343,13 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp){
     case WM_COMMAND:{const int id=LOWORD(wp);if(id>=NavOverview&&id<=NavActivity){app->tab=id-NavOverview;app->Layout();}
         else if(id==RefreshButton)app->Refresh();else if(id==OpenButton)app->Open();
         else if(id==GuideButton)ShellExecuteW(window,L"open",L"https://github.com/kazah-png/RETSAR/blob/main/docs/DESKTOP.md",nullptr,nullptr,SW_SHOWNORMAL);return 0;}
-    case RefreshReady:app->Accept();return 0;
+    case WM_ACTIVATE:
+        app->activationRefresh.SetActive(LOWORD(wp)!=WA_INACTIVE,app->preview,app->closing);
+        app->ScheduleActivationRefresh();return DefWindowProcW(window,message,wp,lp);
+    case ActivationRefreshReady:
+        if(app->activationRefresh.Take(app->refreshing||app->launchPending,app->preview,app->closing))app->Refresh();
+        return 0;
+    case RefreshReady:if(!app->closing)app->Accept();return 0;
     case WM_TIMER:if(wp==LaunchTimer)app->ObserveLaunch(false);return 0;
     case WM_SIZE:app->Layout();return 0;
     case WM_DPICHANGED:{app->dpi=HIWORD(wp);const auto* area=reinterpret_cast<const RECT*>(lp);SetWindowPos(window,nullptr,area->left,area->top,area->right-area->left,area->bottom-area->top,SWP_NOZORDER|SWP_NOACTIVATE);app->Fonts();app->Layout();return 0;}
@@ -347,8 +360,8 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp){
     case WM_ERASEBKGND:return 1;
     case WM_DRAWITEM:app->DrawButton(*reinterpret_cast<const DRAWITEMSTRUCT*>(lp));return TRUE;
     case WM_PAINT:{PAINTSTRUCT paint{};HDC dc=BeginPaint(window,&paint);RECT r{};GetClientRect(window,&r);if(app->buffer.Fit(dc,r.right,r.bottom)){app->Paint(app->buffer.dc);BitBlt(dc,0,0,r.right,r.bottom,app->buffer.dc,0,0,SRCCOPY);}else app->Paint(dc);EndPaint(window,&paint);return 0;}
-    case WM_CLOSE:{std::lock_guard lock(app->box->mutex);app->box->closed=true;DestroyWindow(window);return 0;}
-    case WM_DESTROY:PostQuitMessage(0);return 0;
+    case WM_CLOSE:{app->closing=true;app->activationRefresh.SetActive(false,app->preview,true);std::lock_guard lock(app->box->mutex);app->box->closed=true;DestroyWindow(window);return 0;}
+    case WM_DESTROY:app->closing=true;app->activationRefresh.SetActive(false,app->preview,true);PostQuitMessage(0);return 0;
     }return DefWindowProcW(window,message,wp,lp);
 }
 void Output(const char* value){const HANDLE stream=GetStdHandle(STD_OUTPUT_HANDLE);if(stream&&stream!=INVALID_HANDLE_VALUE){DWORD written=0;WriteFile(stream,value,static_cast<DWORD>(std::strlen(value)),&written,nullptr);}}

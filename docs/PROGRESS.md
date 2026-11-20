@@ -2,6 +2,22 @@
 
 Progress is organized by capability and evidence. A compiled component, simulated transaction or existing session ID is not recorded as an operational native seat.
 
+## Desktop fit and recovery presentation
+
+The staged viewer requests client-side **Fit to window** on startup and offers **Actual size / Fit desktop** in its header. It verifies the Boolean mode returned by the control; a failed or ambiguous readback is not shown as successful fitting. Display-setting errors are nonfatal to the connection. The child desktop remains configured at 1024×768, and changing presentation does not reconnect the desktop or reposition its application windows. The display-setting helper retains its COM references inside the outbound-call guard, including reentrant reference and dispatch callbacks.
+
+The console now refreshes its read-only observations when the user returns to it. Repeated activation events are coalesced, work is deferred while another refresh or launch is busy, and no idle polling loop or automatic reconnect is introduced. An eligible disconnected child is presented as **Ready to resume**, distinct from a new desktop that is ready to open.
+
+A separate staged desktop build passed **1,212 focused checks**: 91 desktop-model, 24 launch-observation, 100 child diagnostic, 608 toggle, 45 client-gate, 76 input-contract, 124 client-mode, 59 diagnostic-event, 60 viewer and 25 viewport checks. These are supplied-value and fake-interface checks; they neither connect a desktop nor demonstrate real display scaling. This focused total is separate from the earlier complete C++/CLI and public CI baselines below and must not be added to their totals. Live presentation and resumption observations are recorded separately below.
+
+During preparation for a supervised update, the user closed the previous viewer. Subsequent observation found its child disconnected while the child-session setting remained enabled. The inspected cleanup receipt ended at `restore-intent`, without a restore result or completed final receipt. The reason for that interruption is unknown. Neither disappearance of the viewer nor a recorded restoration intent proves that the setting was restored. This is an unresolved lifecycle observation, not successful cleanup or reconnect evidence.
+
+### Supervised fitting and enabled-baseline resumption
+
+The staged viewer resumed the exact existing child through the enabled-baseline mode. The inspected receipt recorded `Connect` returning `S_OK`, `OnConnected` at 8.109 seconds, `OnLoginComplete` at 9.875 seconds and `existing-child-resumed` at 9.937 seconds. The target remained child 7 of parent 6, rather than a newly created desktop. The rendered viewer showed **DESKTOP CONNECTED**, **Display: Fit to window**, and the retained Notepad window. This verifies startup fitting and resumption in this supervised environment; it does not establish support across hosts or display configurations.
+
+In a subsequent manual check, the user confirmed that **Actual size** and **Fit desktop** worked, and that closing then resuming the viewer returned to the same Notepad window. That close/resume cycle and button behavior are user-reported evidence, separate from the inspected connection receipt and rendered startup state. At inspection, the available receipts contained only the initial enabled-baseline resumption, without a recorded sizing toggle, completed close or second resumption. The additional manual claims are therefore not independently corroborated; no receipt-backed close/restore success is claimed. These results do not resolve the earlier interrupted restoration or establish prolonged stability, automatic reconnect, all-application compatibility or exclusive physical devices.
+
 ## Desktop connection reliability
 
 [Public Windows CI](https://github.com/kazah-png/RETSAR/actions/runs/44749707526/job/136334089075) at [`b972712`](https://github.com/kazah-png/RETSAR/commit/b972712342dba4ffc63ab6c194db96f81922530b) passed **1,593 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. The downloadable `RETSAR-desktop-preview-windows-x64` artifact was generated successfully. This result validates the code contracts, not live session creation or keyboard independence.
