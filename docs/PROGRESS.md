@@ -4,6 +4,8 @@ Progress is organized by capability and evidence. A compiled component, simulate
 
 ## Optional desktop resolution requests
 
+[Public Windows CI](https://github.com/kazah-png/RETSAR/actions/runs/44785093399/job/136457716214) at [`20b9b0c`](https://github.com/kazah-png/RETSAR/commit/20b9b0c00f65b03658589afb5a4479a15299ca8e) passed **2,165 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. It produced the `RETSAR-desktop-preview-windows-x64` artifact. The workflow executes only inert help and tests, without opening or resizing a desktop.
+
 The viewer now provides an explicit **Match screen** action separate from image scaling and borderless presentation. It requests the current image viewport at 100% scaling, with an even width, bounded dimensions and a 16-million-pixel preview limit. It neither reconnects the child nor changes the host monitor. Entering presentation, returning to a window and DPI notifications never request a resolution automatically.
 
 A request is guarded against reentrant COM callbacks and duplicate submission. The control must report a successful method result and a subsequent matching remote-size event; initial DesktopWidth/Height properties are diagnostic observations only. Unsupported methods, errors and expired confirmation waits are shown without claiming a successful change. The observation timeout cannot cancel a blocked COM method. A real child-mode resolution change can reposition application windows and increase rendering cost.
