@@ -22,7 +22,7 @@ The separate **Match screen** action requests the image viewport's dimensions th
 
 The request uses 100% desktop/device scale, zero rotation and unspecified physical millimeters. Width is even and dimensions are bounded by the [display-control protocol](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpedisp/ea2de591-9203-42cd-9908-be7a55237d1c); RETSAR additionally limits a request to 16 million pixels. A successful return plus a subsequent matching size event is control-level confirmation. DesktopWidth/Height property readback is recorded separately and is not independent session evidence. A bounded passive worker can corroborate the current dimensions from inside the guarded child through [EnumDisplaySettingsEx](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumdisplaysettingsexw); those measurements do not certify delivered image frames or physical isolation.
 
-Unsupported, failed or unconfirmed requests leave the existing connection available. The observation deadline is not cancellation of an unresponsive COM method. Live child-mode support, changed rendering cost and application behavior require supervised evidence; successful fake-interface tests alone are insufficient.
+Unsupported, failed or unconfirmed requests leave the existing connection available. The observation deadline is not cancellation of an unresponsive COM method. The [supervised resolution trial](PROGRESS.md#supervised-desktop-resolution-trial) corroborated 1920×1028 inside the actual child and short visible continuity on the tested host. Changed rendering cost, prolonged use and broader application behavior still require evidence; successful fake-interface tests alone are insufficient.
 
 ## One keyboard and mouse
 

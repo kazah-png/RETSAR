@@ -51,6 +51,8 @@ Only one request may be pending. RETSAR requires a successful method result and 
 
 This feature uses the documented [session-display update](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/legacy/mt703457(v=vs.85)) and [remote-size event](https://learn.microsoft.com/en-us/windows/win32/termserv/imstscaxevents-onremotedesktopsizechange). Availability in the child-session mode must be verified on the actual host; the existence of the method does not guarantee support. See [Verified progress](PROGRESS.md) for the distinction between inert tests and supervised results.
 
+On the tested host, the [supervised resolution trial](PROGRESS.md#supervised-desktop-resolution-trial) changed the existing child to 1920×1028 under the second-monitor toolbar. Independent measurements inside the child corroborated the mode; a repeated visible-counter test and user report confirmed short continued updates while the principal desktop was used. The same connection and Notepad window were retained. This does not establish prolonged stability or resource cost.
+
 ## Using an ordinary second monitor
 
 After the desktop connects, click **Use second monitor** in the viewer. This first version requires exactly one secondary monitor and a normal, non-maximized viewer window. An ambiguous display layout or incomplete observation prevents entry. The viewer keeps a compact toolbar with **Back to window**; **Ctrl+Alt+F12** also requests the return while the viewer has focus. This is a local shortcut, not a system-wide hotkey.

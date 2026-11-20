@@ -35,7 +35,7 @@ RETSAR has opened and resumed a real native Windows child desktop on the tested 
 | **Engine** | Validated plans, reservations, durable receipts and conservative recovery; simulated effects in tests | Integration with a production native provider |
 | **Display research** | Observed console virtual-display lifecycle; remote IDD source builds and validates | Independent physical output and remote runtime acceptance |
 
-The viewer also includes an optional **Match screen** action to request the current viewing-area resolution. It is separate from image scaling; child-mode support and live results are tracked in the [desktop guide](docs/DESKTOP.md#matching-the-desktop-to-the-viewing-area).
+The viewer also includes an optional **Match screen** action, separate from image scaling. A supervised trial verified a real **1920×1028** child desktop on a 1920×1080 secondary monitor, with the toolbar above it and continued visible updates during principal-desktop use. This is evidence from the tested host, not a broad compatibility or endurance claim. [Resolution trial](docs/PROGRESS.md#supervised-desktop-resolution-trial) · [Usage](docs/DESKTOP.md#matching-the-desktop-to-the-viewing-area).
 
 The [evidence record](docs/PROGRESS.md) distinguishes implemented code, inert tests and live observations. A green build is not proof of a working physical seat.
 

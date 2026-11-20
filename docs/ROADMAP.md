@@ -25,7 +25,7 @@ A completed foundation does not amount to a complete physical seat. Native child
 - [ ] Make keyboard focus and shortcuts reliable in the viewer.
 - [ ] Make connecting, connected, disconnected and recovery states understandable.
 - [ ] Validate ordinary browsing, documents and development applications separately.
-- [ ] Validate the optional Match screen resolution request inside the actual child, preserving its connection and application state.
+- [x] Validate the optional Match screen request inside the actual child on the tested host, preserving the connection and observed Notepad state. [Trial and limits](PROGRESS.md#supervised-desktop-resolution-trial).
 - [ ] Measure idle work, connection cost, memory and sustained desktop use before setting performance targets.
 - [x] Package a reproducible developer preview with a usage guide and checksums; production installation and owned-session teardown remain open.
 
