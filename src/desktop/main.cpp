@@ -300,7 +300,7 @@ struct App {
             Chip(dc,display.primary?L"Primary":L"Extended",Width()-164,y+28,110,display.primary?Accent:Cyan);y+=106;++index;}
         if(observation.displays.empty())TextAt(dc,refreshing?L"Reading connected screens...":L"No display information is available. Try Refresh.",R(240,164,content,60),body,Muted);
         if(observation.displays.size()>static_cast<std::size_t>(index))TextAt(dc,L"Additional screens: "+std::to_wstring(observation.displays.size()-static_cast<std::size_t>(index)),R(240,y,content,24),body,Muted);
-        TextAt(dc,L"The desktop viewer can be moved between screens. Exclusive physical monitor and keyboard/mouse assignment is still in development.",R(240,h-116,content,67),body,Muted);
+        TextAt(dc,L"Open your desktop and choose Use second monitor in the viewer. Physical monitor and keyboard/mouse assignment remains in development.",R(240,h-116,content,67),body,Muted);
     }
     void PaintDevices(HDC dc){
         const int content=Width()-268,h=Height(),tile=(content-18)/2,y=Compact()?126:145;

@@ -90,6 +90,7 @@ The core records intent before changes, associates resource receipts with their 
 | [Child desktops](docs/CHILD-SESSIONS.md) | Connection, resumption and observed limits |
 | [Input and application pilot](docs/CHILD-SESSION-INPUT.md) | Input correlation, parent observation and application evidence |
 | [Physical displays and input](docs/PHYSICAL-SEAT.md) | Hardware observations, exclusive-output prerequisites and input-routing work |
+| [Standard monitors](docs/STANDARD-MONITOR.md) | Presenting the child desktop on an ordinary second screen and the remaining input limits |
 | [Native backend research](docs/NATIVE-BACKEND.md) | Physical-seat requirements and candidate mechanisms |
 | [Laboratory](lab/README.md) | Isolated experiments and reproducible evidence |
 | [Roadmap](docs/ROADMAP.md) | Capability gates and outstanding work |

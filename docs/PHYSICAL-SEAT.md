@@ -25,6 +25,10 @@ The specialized-display API permits third-party ownership only for predesignated
 
 Even an eligible specialized target would establish only a candidate for a future exclusive compositor. It would not prove acquisition, frame presentation, child-session binding or keyboard/mouse isolation. A later experiment must acquire an explicitly chosen eligible target, render its own test pattern, release it, and independently verify the principal output. Child-frame transport remains separate.
 
+## Standard-monitor presentation alternative
+
+A separate [standard-monitor route](STANDARD-MONITOR.md) uses the existing child desktop and the host compositor to present its viewer on one ordinary secondary monitor. It does not depend on specialized-output eligibility, acquire the physical connector or assign input devices. Its implementation and supervised results must be assessed separately from physical-seat acceptance.
+
 ## Per-device input work
 
 Windows owns the standard keyboard and mouse HID collections. Raw Input metadata and application-level event handling cannot establish exclusive routing. Microsoft supports filter-driver extension points above the HID mapper or class drivers; the supplied PS/2 samples are not a USB deployment recipe. [Keyboard and mouse driver architecture](https://learn.microsoft.com/en-us/windows-hardware/drivers/hid/keyboard-and-mouse-hid-client-drivers).

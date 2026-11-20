@@ -2,6 +2,26 @@
 
 Progress is organized by capability and evidence. A compiled component, simulated transaction or existing session ID is not recorded as an operational native seat.
 
+## Standard-monitor presentation and visible continuity
+
+The viewer now offers **Use second monitor** and **Back to window**. It requires one uniquely observed secondary monitor and a normal viewer window; incomplete, duplicate or ambiguous observations are rejected. The host window becomes borderless with a compact return toolbar, while the RDP control remains windowed and the child resolution remains 1024×768. No output is acquired, display configuration changed or child connection restarted. This is [host-composited presentation](STANDARD-MONITOR.md), not physical assignment.
+
+Position and style changes require readback. Failed entry attempts roll back or preserve an explicit recovery state. Topology and DPI notifications are deferred outside native/COM transitions. Teardown is also deferred during a native window transition. The local Ctrl+Alt+F12 return shortcut keeps its own down/up pair balanced; its live keyboard behavior remains untested. The existing return button stays available after connection or restoration errors.
+
+A separately staged local desktop build passed **1,549 focused checks**: the preceding 1,418 plus 63 presentation and 68 continuity checks. The new continuity worker was also verified as a Windows GUI executable, avoiding a separate console, and its help/default/invalid-argument paths were checked without opening its window. Public CI coverage is recorded separately after completion.
+
+### Supervised standard-monitor trial
+
+The staged viewer resumed the existing child 7 of parent 6 through the preserve-enabled mode. Its receipt recorded connected/logon events and `existing-child-resumed` at 9.953 seconds; the retained Notepad window was visible. The user activated presentation. Native readback verified the viewer at **(1920, 0)–(3840, 1080)** with its borderless style, and the rendered view showed the compact return toolbar on that secondary monitor.
+
+A fixed, hash-checked private launcher ran the passive continuity worker in the exact active child. Its final receipt reported **60,000 ms, 238 timer ticks, 238 paints, maximum observed tick/paint gap 734 ms and error zero**. Two separately observed viewer images showed its counter advancing from 22 to 57 seconds. The user confirmed that the animation continued while typing and using the mouse normally on the principal desktop. These are short supervised observations, not a frame-rate, latency or endurance benchmark.
+
+The worker generated no input or screen capture. Its own paint counts cannot certify client-side image delivery, so its machine-readable `clientDisplayContinuityVerified` remains false; the rendered observations and user report supply separate visual evidence. Parent sampling detected ordinary cursor/focus changes during use and correctly remained **inconclusive**, rather than claiming unchanged parent state or physical input isolation. The launcher reported result zero and removed its owned temporary task; a separate lookup confirmed that exact task was absent.
+
+The user exercised return and re-entry. Receipts corroborated successful style/rectangle readback for the saved **(1936, 24)–(3056, 884)** ordinary window and subsequent secondary-monitor presentation. The same receipt contains one resumed connection and no intervening disconnect or new connection; the user confirmed the retained Notepad desktop. The final observed presentation state was `presented`, and the desktop was left open.
+
+Real monitor removal/rearrangement, DPI changes, unusual failure recovery, the local shortcut and prolonged operation remain untested. This route preserves a useful separate logical desktop on an ordinary screen; it does not provide exclusive physical monitor ownership, a second physical cursor, or per-device keyboard/mouse routing.
+
 ## Physical-resource investigation and input foundation
 
 [Public Windows CI](https://github.com/kazah-png/RETSAR/actions/runs/44777989415/job/136432833582) at [`f7fa2b7`](https://github.com/kazah-png/RETSAR/commit/f7fa2b795c9dc5b0f5480229572ac523a3fb3195) passed **1,914 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. It generated the `RETSAR-desktop-preview-windows-x64` artifact containing the desktop console, core CLI, viewer and read-only display diagnostic, plus the guide, license and checksums. The kernel adapter is excluded; CI does not build, install or execute it. Automated coverage, the separate local kernel build and real hardware observations are distinct evidence.

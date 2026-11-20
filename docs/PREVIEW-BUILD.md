@@ -18,6 +18,10 @@ For an eligible disconnected child, **Resume desktop** chooses the mode matching
 
 A supervised enabled-baseline trial resumed the existing Notepad desktop with Fit to window visibly active. The user confirmed the sizing buttons and an additional close/resume cycle retaining Notepad; a later receipt inspection corroborated the first resumed viewer closing while preserving its enabled baseline without a setting mutation or restore attempt. No sizing-toggle or second-resumption event was present; those manual actions remain user-reported. This does not establish prolonged stability or compatibility on other hosts.
 
+## Present on a second monitor
+
+Once the desktop is connected, use **Use second monitor** in the viewer. The viewer must be a normal window, with exactly one secondary monitor available. **Back to window** restores it; **Ctrl+Alt+F12** is a local return shortcut while that viewer has focus. This keeps the child connection and presents it through the main Windows compositor. It does not exclusively assign the monitor or physical controls. Keep the viewer visible when checking continuity; minimizing can suppress remote image updates. [Standard-monitor scope and validation](https://github.com/kazah-png/RETSAR/blob/main/docs/STANDARD-MONITOR.md).
+
 For a clearly labelled interface demonstration without session or device inventory, run `RETSAR-Desktop.exe --preview`.
 
 [Source and verified progress](https://github.com/kazah-png/RETSAR) · [MIT license](https://github.com/kazah-png/RETSAR/blob/main/LICENSE)

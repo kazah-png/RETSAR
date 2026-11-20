@@ -41,6 +41,14 @@ An exactly identified viewer built beside the console can be brought forward wit
 
 The viewer requests **Fit to window** on startup so the full desktop can fit in the available viewing area. Click **Actual size** in the header to use unscaled display with scrollbars when needed, or **Fit desktop** to fit it again. This uses the control's [SmartSizing property](https://learn.microsoft.com/en-us/windows/win32/termserv/imsrdpclientadvancedsettings-smartsizing); it changes client-side presentation, not the child desktop's configured 1024×768 resolution, application windows or connection. The header reports the mode read back from Windows. If that change cannot be confirmed, an explanatory message appears and the connection stays available. Current toolbar access is by clicking the button; an explicit keyboard route into the toolbar is not yet implemented.
 
+## Using an ordinary second monitor
+
+After the desktop connects, click **Use second monitor** in the viewer. This first version requires exactly one secondary monitor and a normal, non-maximized viewer window. An ambiguous display layout or incomplete observation prevents entry. The viewer keeps a compact toolbar with **Back to window**; **Ctrl+Alt+F12** also requests the return while the viewer has focus. This is a local shortcut, not a system-wide hotkey.
+
+The presentation changes the viewer window and keeps its existing child connection. It does not switch monitor resolution, assign the physical connector, or enable the RDP control's fullscreen mode. Window placement does not request activation. Keep the viewer visible while using the principal desktop; minimizing is a separate state and can suppress remote image updates. The host cursor can still enter that screen and host windows can overlap it.
+
+**Back to window** restores the saved normal window. Monitor changes cause revalidation; losing the target requests restoration into an available work area. Placement and restoration are checked afterward, and an unverified change is reported rather than shown as success. Real monitor removal and DPI changes still require supervised validation. See [Standard-monitor presentation](STANDARD-MONITOR.md) for the mechanism, evidence boundaries and acceptance checks.
+
 The viewer renders a normal Windows desktop. Open applications there as you would in any Windows session. Application compatibility must be verified individually; the [supervised pilot](CHILD-SESSION-INPUT.md) is one example, not a universal guarantee.
 
 ## Closing and recovery

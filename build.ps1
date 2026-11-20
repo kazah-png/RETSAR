@@ -101,18 +101,19 @@ try {
  }
  if($ChildSessionLab){
   New-Item -ItemType Directory -Force -Path "$base\dist\lab" | Out-Null
-  foreach($probe in @(@{source='child_session_probe';name='child-session-probe'},@{source='child_session_toggle_probe';name='child-session-toggle'},@{source='child_session_client';name='child-session-client'},@{source='child_session_input_probe';name='child-session-input-probe'},@{source='child_session_task_probe';name='child-session-task-probe'})){
+  foreach($probe in @(@{source='child_session_probe';name='child-session-probe'},@{source='child_session_toggle_probe';name='child-session-toggle'},@{source='child_session_client';name='child-session-client'},@{source='child_session_input_probe';name='child-session-input-probe'},@{source='child_session_task_probe';name='child-session-task-probe'},@{source='child_session_continuity_probe';name='child-session-continuity-probe'})){
    $probeResource=@();if($probe.source -eq 'child_session_client'){$probeResource=@("$base\build\RETSAR-brand.res")}
-   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\src\lab\$($probe.source).cpp" @probeResource "/Fe:$base\dist\lab\RETSAR-$($probe.name).exe" /link /SUBSYSTEM:CONSOLE /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\app.manifest" @libs wtsapi32.lib ole32.lib oleaut32.lib uuid.lib user32.lib gdi32.lib advapi32.lib taskschd.lib bcrypt.lib
+   $probeSubsystem=if($probe.source -eq 'child_session_continuity_probe'){'WINDOWS'}else{'CONSOLE'}
+   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\src\lab\$($probe.source).cpp" @probeResource "/Fe:$base\dist\lab\RETSAR-$($probe.name).exe" /link "/SUBSYSTEM:$probeSubsystem" /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\app.manifest" @libs wtsapi32.lib ole32.lib oleaut32.lib uuid.lib user32.lib gdi32.lib advapi32.lib taskschd.lib bcrypt.lib shell32.lib
    if($LASTEXITCODE -ne 0){throw 'Child-session laboratory diagnostic compilation failed.'}
    # Help only: never query or change session state as part of a build.
-   & "$base\dist\lab\RETSAR-$($probe.name).exe" --help
+   & "$base\dist\lab\RETSAR-$($probe.name).exe" --help | Out-Host
    if($LASTEXITCODE -ne 0){throw 'Inert child-session help check failed.'}
   }
  }
  if($Test -or $ChildSessionLab){
-  foreach($contract in @('child_session_status','child_session_toggle','child_session_client_gate','child_session_input_contract','child_session_client_mode','child_session_client_diagnostics','child_session_viewer','child_session_viewport')){
-   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\${contract}_tests.cpp" "/Fe:$base\build\RETSAR-${contract}-tests.exe" /link /SUBSYSTEM:CONSOLE /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\app.manifest" @libs wtsapi32.lib ole32.lib oleaut32.lib uuid.lib user32.lib gdi32.lib advapi32.lib taskschd.lib bcrypt.lib
+  foreach($contract in @('child_session_status','child_session_toggle','child_session_client_gate','child_session_input_contract','child_session_client_mode','child_session_client_diagnostics','child_session_viewer','child_session_viewport','child_session_presentation','child_session_continuity')){
+   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\${contract}_tests.cpp" "/Fe:$base\build\RETSAR-${contract}-tests.exe" /link /SUBSYSTEM:CONSOLE /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\app.manifest" @libs wtsapi32.lib ole32.lib oleaut32.lib uuid.lib user32.lib gdi32.lib advapi32.lib taskschd.lib bcrypt.lib shell32.lib
    if($LASTEXITCODE -ne 0){throw "Child-session pure test compilation failed: $contract"}
    & "$base\build\RETSAR-${contract}-tests.exe"
    if($LASTEXITCODE -ne 0){throw "Child-session pure tests failed: $contract"}
