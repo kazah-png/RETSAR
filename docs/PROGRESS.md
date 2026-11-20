@@ -4,6 +4,8 @@ Progress is organized by capability and evidence. A compiled component, simulate
 
 ## Connection-end evidence and close results
 
+[Public Windows CI](https://github.com/kazah-png/RETSAR/actions/runs/44808528642/job/136538754966) at [`5d5b196`](https://github.com/kazah-png/RETSAR/commit/5d5b19657879eb58cf4c4992988c14a1ef7a9864) passed **2,522 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. It produced the `RETSAR-desktop-preview-windows-x64` artifact, including the updated closure guide and checksums. The run performed no live session or viewer operation.
+
 The viewer previously could finish its five-second close wait and show a normal disconnection solely because the Windows setting was restored or preserved. Failures from the disconnect request and object close were recorded but could disappear from the final presentation. Connection-end evidence is now independent of setting verification and operation errors.
 
 A valid [OnDisconnected](https://learn.microsoft.com/en-us/windows/win32/termserv/imstscaxevents-ondisconnected) callback from the subscribed control, or an exact successful integer [Connected = 0](https://learn.microsoft.com/en-us/windows/win32/termserv/imstscax-connected) observation before releasing that control, can confirm the connection ended. A successful `Disconnect` or `Close` call alone, an expired wait, a failed connection attempt and the release of COM references cannot. Callbacks delivered during a property read supersede the sampled value. A viewer stopped before attempting a connection reports that distinct outcome instead of inventing a disconnection event.

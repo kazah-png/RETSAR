@@ -24,6 +24,7 @@ A completed foundation does not amount to a complete physical seat. Native child
 - [x] Offer guarded create/resume actions through the existing child-session client; Windows handles identity confirmation when required.
 - [ ] Make keyboard focus and shortcuts reliable in the viewer.
 - [ ] Make connecting, connected, disconnected and recovery states understandable.
+- [ ] Explain early viewer exits in the console using the exact launched process result and its own diagnostic receipt.
 - [ ] Validate ordinary browsing, documents and development applications separately.
 - [x] Validate the optional Match screen request inside the actual child on the tested host, preserving the connection and observed Notepad state. [Trial and limits](PROGRESS.md#supervised-desktop-resolution-trial).
 - [ ] Measure idle work, connection cost, memory and sustained desktop use before setting performance targets.
