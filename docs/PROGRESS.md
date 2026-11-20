@@ -2,6 +2,16 @@
 
 Progress is organized by capability and evidence. A compiled component, simulated transaction or existing session ID is not recorded as an operational native seat.
 
+## Desktop actions and keyboard navigation
+
+The console previously disabled its Open/Resume/Show button as soon as a return-to-window refresh started, so the activating click could be lost. It now retains the previously eligible button during that activation refresh and records a single explicit action request. A new session observation started after the click must still identify the same action and target before it can proceed. Refreshing alone never creates a request. Deactivation, shutdown, changed or incomplete session evidence and a ten-second deadline cancel it. Showing a viewer also requires its exact window/process incarnation. The request is consumed before execution, and the viewer retains its own admission checks before any session operation.
+
+The viewer adds a local keyboard route through the Windows control's `OnFocusReleased` callback into the toolbar, then Tab/Shift+Tab navigation, Enter activation and Escape back to the control. Navigation is scoped to the toolbar; normal desktop keys retain their existing route. Focus changes are deferred outside active COM calls, limited to verified owned windows on the active viewer thread, and checked afterward. The consumed Escape pair does not leave a stray key release in the desktop. No global hook, input injection, foreground-stealing operation or shortcut-redirection change is added.
+
+Active-object replacement now protects the complete COM reference lifetime against reentrancy, preserves a newer nested replacement and marks activation synchronization pending for the newly supplied object. These changes address concrete container-lifecycle defects. They do not establish that the earlier F8 problem is resolved for every application.
+
+The separately staged desktop/physical build passed **1,974 focused checks**, including **67 action-intent checks, 215 navigation checks and 83 viewer checks** (23 new viewer-lifecycle checks). The final sources matched the staged build across 140 source/build/asset files. Compilation used warnings as errors; inert help and all focused tests passed without opening a desktop or changing session settings. These checks use supplied observations and fake COM/window boundaries. Public CI is recorded separately when complete. The running adaptive-desktop preview was left untouched during development; the new controls still require a supervised live trial before broader reliability claims.
+
 ## Optional desktop resolution requests
 
 [Public Windows CI](https://github.com/kazah-png/RETSAR/actions/runs/44785093399/job/136457716214) at [`20b9b0c`](https://github.com/kazah-png/RETSAR/commit/20b9b0c00f65b03658589afb5a4479a15299ca8e) passed **2,165 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. It produced the `RETSAR-desktop-preview-windows-x64` artifact. The workflow executes only inert help and tests, without opening or resizing a desktop.

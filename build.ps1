@@ -70,6 +70,10 @@ try {
   if($LASTEXITCODE -ne 0){throw 'Desktop launch test compilation failed.'}
   & "$base\build\RETSAR-desktop-launch-tests.exe"
   if($LASTEXITCODE -ne 0){throw 'Desktop launch tests failed.'}
+  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\desktop_action_intent_tests.cpp" "/Fe:$base\build\RETSAR-desktop-action-intent-tests.exe" /link /SUBSYSTEM:CONSOLE @libs wtsapi32.lib
+  if($LASTEXITCODE -ne 0){throw 'Desktop action intent test compilation failed.'}
+  & "$base\build\RETSAR-desktop-action-intent-tests.exe"
+  if($LASTEXITCODE -ne 0){throw 'Desktop action intent tests failed.'}
  }
  if($PhysicalSeatLab){
   $cppwinrt=Join-Path $sdk "Include\$ver\cppwinrt"
@@ -112,7 +116,7 @@ try {
   }
  }
  if($Test -or $ChildSessionLab){
-  foreach($contract in @('child_session_status','child_session_toggle','child_session_client_gate','child_session_input_contract','child_session_client_mode','child_session_client_diagnostics','child_session_viewer','child_session_viewport','child_session_resolution','child_session_presentation','child_session_continuity')){
+  foreach($contract in @('child_session_status','child_session_toggle','child_session_client_gate','child_session_input_contract','child_session_client_mode','child_session_client_diagnostics','child_session_viewer','child_session_navigation','child_session_viewport','child_session_resolution','child_session_presentation','child_session_continuity')){
    & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\${contract}_tests.cpp" "/Fe:$base\build\RETSAR-${contract}-tests.exe" /link /SUBSYSTEM:CONSOLE /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\app.manifest" @libs wtsapi32.lib ole32.lib oleaut32.lib uuid.lib user32.lib gdi32.lib advapi32.lib taskschd.lib bcrypt.lib shell32.lib
    if($LASTEXITCODE -ne 0){throw "Child-session pure test compilation failed: $contract"}
    & "$base\build\RETSAR-${contract}-tests.exe"

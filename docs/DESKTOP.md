@@ -15,6 +15,8 @@ Use Windows x64, the Visual Studio C++ Build Tools and a complete Windows SDK.
 
 The normal GUI reads session/display metadata asynchronously on startup, when you return to the console, and when **Refresh** or **F5** is used. Return-to-console observations are coalesced and deferred while another refresh or viewer launch is busy; they never reconnect a desktop automatically. After its own viewer launch, it also follows connection startup every 1.5 seconds for at most 90 seconds, then stops observing automatically. It retains the exact process handle while the outcome is unresolved, preventing a duplicate launch; **Refresh** can reconcile the observation later. It does not watch keys, capture application contents or poll continuously. Opening the console does not alter or close an existing desktop.
 
+If you click **Open desktop**, **Resume desktop** or **Show desktop** while the panel is updating after you return to it, it keeps that explicit request while checking again. The action proceeds only if the same desktop or viewer is still eligible. A changed target, failed session check, leaving the panel, closing it or a ten-second expiry cancels the request. Simply returning to the panel never opens or resumes anything automatically.
+
 ## The interface
 
 - **Overview** shows the main and observed independent desktop, with an action derived from actual readiness.
@@ -39,7 +41,13 @@ That ordinary directory must already exist. An absent directory, unknown session
 
 An exactly identified viewer built beside the console can be brought forward with **Show desktop**. A desktop created by another viewer instance may be observed as active without being controlled by this console. A visible viewer window by itself does not prove that its connection succeeded.
 
-The viewer requests **Fit to window** on startup so the full desktop can fit in the available viewing area. Click **Actual size** in the header to use unscaled display with scrollbars when needed, or **Fit desktop** to fit it again. This uses the control's [SmartSizing property](https://learn.microsoft.com/en-us/windows/win32/termserv/imsrdpclientadvancedsettings-smartsizing); it changes client-side presentation, not the child desktop's resolution, application windows or connection. The header reports the mode read back from Windows. If that change cannot be confirmed, an explanatory message appears and the connection stays available. Current toolbar access is by clicking the button; an explicit keyboard route into the toolbar is not yet implemented.
+The viewer requests **Fit to window** on startup so the full desktop can fit in the available viewing area. Click **Actual size** in the header to use unscaled display with scrollbars when needed, or **Fit desktop** to fit it again. This uses the control's [SmartSizing property](https://learn.microsoft.com/en-us/windows/win32/termserv/imsrdpclientadvancedsettings-smartsizing); it changes client-side presentation, not the child desktop's resolution, application windows or connection. The header reports the mode read back from Windows. If that change cannot be confirmed, an explanatory message appears and the connection stays available. The toolbar also provides the keyboard route described below.
+
+## Keyboard access to the viewer toolbar
+
+When the Windows RDP control reports its documented **Ctrl+Alt+Left Arrow** or **Ctrl+Alt+Right Arrow** focus-release action, RETSAR moves focus to the first available toolbar button. **Tab** and **Shift+Tab** move among the visible, enabled toolbar controls. **Enter** activates the focused button; **Escape** returns to the desktop control. These actions operate within the active viewer only. Clicking directly inside the desktop remains available.
+
+Toolbar navigation is handled only while one of RETSAR's toolbar buttons has focus. Ordinary Tab, Enter, Escape and function keys inside the desktop keep their existing control route. RETSAR does not install a global keyboard hook or change the Windows shortcut-redirection setting. The release action depends on the control delivering [OnFocusReleased](https://learn.microsoft.com/en-us/windows/win32/termserv/imstscaxevents-onfocusreleased); inert tests do not prove that every application shortcut, including the earlier Zzen F8 case, works in a live session.
 
 ## Matching the desktop to the viewing area
 

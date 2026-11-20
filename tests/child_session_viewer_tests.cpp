@@ -2,6 +2,8 @@
 #include "../src/lab/child_session_viewer_state.hpp"
 #include <iostream>
 #include <string>
+#include <functional>
+#include <utility>
 using namespace seats::lab::child::ax;
 namespace {
 unsigned passed=0,failed=0;
@@ -11,10 +13,18 @@ public:
     unsigned& depth;ULONG refs=1;unsigned calls=0,guardedAdd=0,guardedRelease=0;
     BOOL activation=FALSE;HRESULT result=S_OK,reentry=E_UNEXPECTED;bool requestReentry=false,guardedCallback=false;
     unsigned keyCalls=0;bool addReentry=false,keyReentry=false;HRESULT nestedKey=E_UNEXPECTED;MSG key{nullptr,WM_KEYDOWN};
+    std::function<void()> onAdd,onRelease;
     explicit ActiveObject(unsigned& value):depth(value){}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID,void** out)override{if(out)*out=nullptr;return E_NOINTERFACE;}
-    ULONG STDMETHODCALLTYPE AddRef()override{if(depth)++guardedAdd;if(addReentry){addReentry=false;nestedKey=TranslateOwnedAccelerator(this,&key,depth);}return ++refs;}
-    ULONG STDMETHODCALLTYPE Release()override{if(depth)++guardedRelease;return --refs;}
+    ULONG STDMETHODCALLTYPE AddRef()override{
+        if(depth)++guardedAdd;++refs;
+        auto callback=std::move(onAdd);onAdd=nullptr;if(callback)callback();
+        if(addReentry){addReentry=false;nestedKey=TranslateOwnedAccelerator(this,&key,depth);}return refs;
+    }
+    ULONG STDMETHODCALLTYPE Release()override{
+        if(depth)++guardedRelease;--refs;
+        auto callback=std::move(onRelease);onRelease=nullptr;if(callback)callback();return refs;
+    }
     HRESULT STDMETHODCALLTYPE GetWindow(HWND* out)override{if(out)*out=nullptr;return E_NOTIMPL;}
     HRESULT STDMETHODCALLTYPE ContextSensitiveHelp(BOOL)override{return E_NOTIMPL;}
     HRESULT STDMETHODCALLTYPE TranslateAccelerator(LPMSG message)override{
@@ -93,6 +103,83 @@ int main(){
     object.keyReentry=true;
     Check(TranslateOwnedAccelerator(&object,&object.key,depth)==S_OK&&object.nestedKey==E_PENDING&&object.keyCalls==keyCalls+2&&depth==0&&object.refs==1,
         "TranslateAccelerator reentry cannot leak references or recursively deliver input");
+    {
+        unsigned nestedDepth=0;bool pending=false,closing=false,stop=false;
+        ActiveObject first(nestedDepth),second(nestedDepth),third(nestedDepth);
+        Site site;site.outboundDepth=&nestedDepth;site.closing=&closing;
+        site.stopRequested=&stop;site.frameActivationPending=&pending;
+        Check(site.SetActiveObject(&first,nullptr)==S_OK&&pending&&first.refs==2&&nestedDepth==0,
+            "active object publication retains a guarded reference and rearms frame delivery");
+        Check(NotifyPendingFrameWindow(site.active.value,TRUE,pending,false,nestedDepth)==S_OK&&!pending&&first.activation,
+            "new object receives current active-frame state without a new WM_ACTIVATE");
+        const auto generation=site.activeGeneration;
+        Check(site.SetActiveObject(&first,nullptr)==S_OK&&pending&&first.refs==2&&site.activeGeneration==generation+1,
+            "same object replacement balances AddRef and Release and rearms delivery");
+        pending=false;
+        second.onAdd=[&](){Check(nestedDepth==1&&site.active.value==&first,"candidate AddRef observes guarded old registration");
+            Check(site.SetActiveObject(&third,nullptr)==S_OK,"nested AddRef can publish newer registration");};
+        Check(site.SetActiveObject(&second,nullptr)==S_OK&&site.active.value==&third&&pending,
+            "outer AddRef callback cannot overwrite a newer active registration");
+        Check(first.refs==1&&second.refs==1&&third.refs==2&&nestedDepth==0,
+            "nested AddRef replacement releases stale candidate and old object exactly once");
+        site.SetActiveObject(nullptr,nullptr);
+        Check(third.refs==1&&site.active.value==nullptr,"null deactivation clears the retained object");
+        site.SetActiveObject(&first,nullptr);
+        first.onRelease=[&](){Check(nestedDepth==1&&site.active.value==&second,"old Release sees replacement published before release");
+            site.SetActiveObject(&third,nullptr);};
+        Check(site.SetActiveObject(&second,nullptr)==S_OK&&site.active.value==&third&&
+            first.refs==1&&second.refs==1&&third.refs==2&&nestedDepth==0,
+            "Release replacement keeps the newer callback registration with balanced ownership");
+        site.SetActiveObject(nullptr,nullptr);site.SetActiveObject(&first,nullptr);
+        second.onAdd=[&](){site.SetActiveObject(nullptr,nullptr);};
+        Check(site.SetActiveObject(&second,nullptr)==S_OK&&!site.active&&first.refs==1&&second.refs==1&&nestedDepth==0,
+            "null callback during AddRef cancels publication and releases both stale references");
+        site.SetActiveObject(&first,nullptr);
+        first.onRelease=[&](){site.SetActiveObject(nullptr,nullptr);};
+        Check(site.SetActiveObject(&second,nullptr)==S_OK&&!site.active&&first.refs==1&&second.refs==1&&nestedDepth==0,
+            "null callback during old Release clears the newly published reference once");
+        site.SetActiveObject(&first,nullptr);const auto additions=second.guardedAdd;closing=true;
+        Check(site.SetActiveObject(&second,nullptr)==E_ABORT&&site.active.value==&first&&second.guardedAdd==additions,
+            "closing rejects replacement before retaining its reference");
+        Check(site.SetActiveObject(nullptr,nullptr)==S_OK&&!site.active&&first.refs==1,
+            "null deactivation remains legal while closing");
+        closing=false;stop=true;
+        Check(site.SetActiveObject(&second,nullptr)==E_ABORT&&!site.active&&second.guardedAdd==additions,
+            "deferred stop blocks new registrations before cleanup starts");
+        stop=false;site.SetActiveObject(&first,nullptr);
+        second.onAdd=[&](){closing=true;};
+        Check(site.SetActiveObject(&second,nullptr)==E_ABORT&&site.active.value==&first&&second.refs==1&&first.refs==2&&nestedDepth==0,
+            "close during AddRef releases the candidate and retains existing object for cleanup");
+        site.SetActiveObject(nullptr,nullptr);closing=false;
+        second.onAdd=[&](){closing=true;second.onRelease=[&](){site.SetActiveObject(nullptr,nullptr);};};
+        Check(site.SetActiveObject(&second,nullptr)==E_ABORT&&!site.active&&second.refs==1&&nestedDepth==0,
+            "reentry while releasing cancelled candidate cannot mask the close result");
+        closing=false;site.activeGeneration=~0ull;
+        Check(site.SetActiveObject(&second,nullptr)==E_UNEXPECTED&&!site.active&&second.refs==1&&nestedDepth==0,
+            "generation overflow rejects publication without retaining a reference");
+        site.activeGeneration=0;nestedDepth=~0u;
+        Check(site.SetActiveObject(&second,nullptr)==E_UNEXPECTED&&!site.active&&second.refs==1&&nestedDepth==~0u,
+            "depth overflow rejects registration without wrapping the lifecycle guard");
+        nestedDepth=0;
+        Check(first.guardedAdd==first.guardedRelease&&second.guardedAdd==second.guardedRelease&&third.guardedAdd==third.guardedRelease,
+            "all replacement paths balance guarded references");
+    }
+    {
+        unsigned nestedDepth=0;bool pending=false;
+        ActiveObject first(nestedDepth),candidate(nestedDepth);HRESULT rejected=S_OK,cleared=E_FAIL;
+        {
+            Site site;site.outboundDepth=&nestedDepth;site.frameActivationPending=&pending;
+            site.SetActiveObject(&first,nullptr);pending=false;
+            first.onRelease=[&](){
+                Check(nestedDepth==1&&!site.active&&site.retiring,"destructor publishes null before guarded Release");
+                rejected=site.SetActiveObject(&candidate,nullptr);cleared=site.SetActiveObject(nullptr,nullptr);
+            };
+        }
+        Check(rejected==E_ABORT&&cleared==S_OK&&first.refs==1&&candidate.refs==1&&!pending&&nestedDepth==0,
+            "retiring site rejects new ownership and tolerates reentrant null deactivation");
+        Check(first.guardedRelease==1&&candidate.guardedAdd==0,
+            "destruction releases its sole retained reference and never retains a replacement");
+    }
     namespace viewer=seats::lab::child::viewer;
     viewer::State state;
     const auto phase=[&](){return viewer::Present(state).phase;};

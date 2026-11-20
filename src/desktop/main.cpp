@@ -1,5 +1,6 @@
 #include "desktop_model.hpp"
 #include "launch_observation.hpp"
+#include "desktop_action_intent.hpp"
 #include "physical_input_inventory.hpp"
 #include <shellapi.h>
 #include <windowsx.h>
@@ -17,7 +18,8 @@
 namespace {
 using namespace retsar::desktop;
 constexpr UINT RefreshReady=WM_APP+41,ActivationRefreshReady=WM_APP+42;
-constexpr UINT_PTR LaunchTimer=72;
+constexpr UINT_PTR LaunchTimer=72,ActionIntentTimer=73;
+enum class RefreshOrigin { Initial, Manual, Activation, Validation, Launch };
 constexpr int NavOverview=1010,NavDisplays=1011,NavActivity=1012,NavDevices=1013,RefreshButton=1020,OpenButton=1021,GuideButton=1022;
 constexpr COLORREF Background=RGB(11,16,32),Sidebar=RGB(8,13,26),Surface=RGB(21,30,49),Border=RGB(39,53,77);
 constexpr COLORREF Accent=RGB(93,228,199),Cyan=RGB(121,207,242),Text=RGB(239,244,252),Muted=RGB(155,173,206),Amber=RGB(240,198,115);
@@ -31,6 +33,7 @@ struct Observation {
 };
 struct QueryBox {
     std::mutex mutex;bool closed=false,ready=false;std::unique_ptr<Observation> result;
+    ULONGLONG generation=0,started=0;
 };
 bool Equal(const std::wstring& a,const std::wstring& b)noexcept{return _wcsicmp(a.c_str(),b.c_str())==0;}
 std::wstring Parent(const std::wstring& value){const auto at=value.find_last_of(L"\\/");return at==std::wstring::npos?L"":value.substr(0,at);}
@@ -119,6 +122,8 @@ struct BackBuffer {
 struct App {
     HWND window=nullptr;HINSTANCE instance=nullptr;HICON appIcon=nullptr;UINT dpi=96;int tab=0;bool preview=false,refreshing=false,launchPending=false,closing=false;
     ActivationRefresh activationRefresh;
+    intent::Ticket actionIntent;bool active=false;RefreshOrigin refreshOrigin=RefreshOrigin::Initial;
+    ULONGLONG refreshGeneration=0;
     Handle launchedViewer;bool watchingLaunch=false;ULONGLONG launchedAt=0,launchedCreation=0;DWORD launchedPid=0,launchedParent=MAXDWORD,launchedChild=MAXDWORD;
     std::wstring viewerPath;Observation observation;std::shared_ptr<QueryBox> box=std::make_shared<QueryBox>();
     std::vector<std::wstring> activity;std::array<HWND,7> buttons{};HWND statusLabel=nullptr,detailLabel=nullptr;HBRUSH backgroundBrush=CreateSolidBrush(Background);HFONT title=nullptr,heading=nullptr,body=nullptr,fontSmall=nullptr;BackBuffer buffer;
@@ -132,13 +137,44 @@ struct App {
     void Fonts(){CloseFonts();title=Font(30,FW_SEMIBOLD);heading=Font(19,FW_SEMIBOLD);body=Font(14,FW_NORMAL);fontSmall=Font(12,FW_NORMAL);for(HWND b:buttons)if(b)SendMessageW(b,WM_SETFONT,reinterpret_cast<WPARAM>(body),TRUE);if(statusLabel)SendMessageW(statusLabel,WM_SETFONT,reinterpret_cast<WPARAM>(body),TRUE);if(detailLabel)SendMessageW(detailLabel,WM_SETFONT,reinterpret_cast<WPARAM>(fontSmall),TRUE);}
     void Note(std::wstring value){activity.insert(activity.begin(),std::move(value));if(activity.size()>8)activity.resize(8);InvalidateRect(window,nullptr,FALSE);}
     Decision Current()const noexcept {if(refreshing||launchPending)return {Action::None,Availability::Loading};if(launchedViewer.value&&!observation.facts.verifiedViewerPresent)return {Action::None,watchingLaunch?Availability::Loading:Availability::Unknown};return Decide(observation.facts);}
+    intent::Target ActionTarget()const {
+        const auto& viewer=observation.viewer;
+        return intent::Capture(observation.facts,{reinterpret_cast<std::uintptr_t>(viewer.window),
+            viewer.process,viewer.created,viewer.path},launchedViewer.value!=nullptr);
+    }
+    Decision ButtonDecision()const {
+        if(actionIntent.Pending()||launchPending||closing)return {Action::None,Availability::Loading};
+        if(refreshing&&refreshOrigin==RefreshOrigin::Activation){
+            const auto target=ActionTarget();
+            if(target.valid&&(!launchedViewer.value||target.decision.action==Action::ShowViewer))return target.decision;
+        }
+        return Current();
+    }
+    void IntentCancellationNote(){
+        switch(actionIntent.Why()){
+        case intent::Reason::Timeout:Note(L"The request expired while checking. No desktop action was started; try again when the check finishes.");break;
+        case intent::Reason::Inactive:Note(L"The pending request was cancelled when you left this overview. No desktop action was started.");break;
+        case intent::Reason::Changed:Note(L"The desktop state changed while checking. Review the updated action and click again.");break;
+        case intent::Reason::Uncertain:Note(L"The requested action could not be verified. No desktop action was started.");break;
+        default:Note(L"The pending request was cancelled. No desktop action was started.");break;
+        }
+    }
+    void CancelIntent(intent::Reason reason,bool explain=true){
+        const bool pending=actionIntent.Pending();actionIntent.Cancel(reason);KillTimer(window,ActionIntentTimer);
+        if(pending&&explain)IntentCancellationNote();
+    }
+    void PollIntent(){
+        const auto outcome=actionIntent.Poll(GetTickCount64(),active,closing,launchPending);
+        if(outcome==intent::Outcome::Cancelled){KillTimer(window,ActionIntentTimer);IntentCancellationNote();Layout();}
+        else if(outcome==intent::Outcome::None)KillTimer(window,ActionIntentTimer);
+    }
     bool Compact()const noexcept{return Height()<720;}
     int CardY()const noexcept{return Compact()?126:145;}
     int CardHeight()const noexcept{return Compact()?142:188;}
     int ActionY()const noexcept{return Compact()?290:370;}
     int DetailY()const noexcept{return Compact()?Height()-106:614;}
     void ScheduleActivationRefresh(){
-        if(activationRefresh.Schedule(refreshing||launchPending,preview,closing)&&
+        if(activationRefresh.Schedule(refreshing||launchPending||actionIntent.Pending(),preview,closing)&&
            !PostMessageW(window,ActivationRefreshReady,0,0))activationRefresh.PostFailed();
     }
     void Layout(){
@@ -149,24 +185,30 @@ struct App {
         MoveWindow(buttons[3],P(w-152),P(Compact()?28:38),P(124),P(38),TRUE);
         MoveWindow(buttons[4],P(240),P(actionY),P(194),P(44),TRUE);ShowWindow(buttons[4],tab==0?SW_SHOW:SW_HIDE);
         MoveWindow(buttons[5],P(18),P(h-82),P(176),P(38),TRUE);
-        const auto decision=Current();SetWindowTextW(buttons[4],ActionLabel(decision));
+        const auto decision=Current(),buttonDecision=ButtonDecision();
+        SetWindowTextW(buttons[4],actionIntent.Pending()?L"Checking request...":ActionLabel(buttonDecision));
         MoveWindow(statusLabel,P(452),P(actionY+3),P(w-480),P(24),TRUE);MoveWindow(detailLabel,P(240),P(DetailY()),P(w-268),P(58),TRUE);
         ShowWindow(statusLabel,tab==0?SW_SHOW:SW_HIDE);ShowWindow(detailLabel,tab==0&&h>=475?SW_SHOW:SW_HIDE);
-        SetWindowTextW(statusLabel,preview?L"Design preview - sample data":AvailabilityTitle(decision.availability));
-        SetWindowTextW(detailLabel,preview?L"Sample desktops and displays. No system inventory was collected.":AvailabilityDetail(decision.availability));
-        EnableWindow(buttons[4],!preview&&decision.action!=Action::None);
-        EnableWindow(buttons[3],!refreshing&&!launchPending&&!preview);InvalidateRect(window,nullptr,FALSE);
+        SetWindowTextW(statusLabel,preview?L"Design preview - sample data":actionIntent.Pending()?L"Checking your request":AvailabilityTitle(decision.availability));
+        SetWindowTextW(detailLabel,preview?L"Sample desktops and displays. No system inventory was collected.":actionIntent.Pending()?L"Checking fresh session information before performing the action you selected. Leaving this overview cancels the pending request.":AvailabilityDetail(decision.availability));
+        EnableWindow(buttons[4],!preview&&buttonDecision.action!=Action::None);
+        EnableWindow(buttons[3],!refreshing&&!launchPending&&!actionIntent.Pending()&&!preview);InvalidateRect(window,nullptr,FALSE);
         ScheduleActivationRefresh();
     }
-    void Refresh(){
+    void Refresh(RefreshOrigin origin=RefreshOrigin::Manual){
         if(refreshing||launchPending||preview||closing)return;
-        refreshing=true;Layout();const auto mailbox=box;const auto path=viewerPath;const auto target=window;
-        try{std::thread([mailbox,path,target]{
-            std::unique_ptr<Observation> value;
+        if(origin!=RefreshOrigin::Validation&&origin!=RefreshOrigin::Activation)
+            CancelIntent(intent::Reason::Explicit);
+        if(refreshGeneration==~0ull){CancelIntent(intent::Reason::Uncertain);Note(L"The refresh sequence is unavailable. Reopen this overview.");Layout();return;}
+        refreshOrigin=origin;refreshing=true;const auto generation=++refreshGeneration;
+        Layout();const auto mailbox=box;const auto path=viewerPath;const auto target=window;
+        try{std::thread([mailbox,path,target,generation]{
+            const auto started=GetTickCount64();std::unique_ptr<Observation> value;
             try{value=std::make_unique<Observation>(Read(path));}catch(...){value.reset();}
             std::lock_guard lock(mailbox->mutex);if(mailbox->closed)return;
-            mailbox->result=std::move(value);mailbox->ready=true;PostMessageW(target,RefreshReady,0,0);
-        }).detach();}catch(...){refreshing=false;Note(L"Could not start the read-only refresh.");Layout();}
+            mailbox->result=std::move(value);mailbox->generation=generation;mailbox->started=started;
+            mailbox->ready=true;PostMessageW(target,RefreshReady,0,0);
+        }).detach();}catch(...){refreshing=false;CancelIntent(intent::Reason::Uncertain);Note(L"Could not start the read-only refresh.");Layout();}
     }
     void FinishLaunch(launch::Result result){
         KillTimer(window,LaunchTimer);watchingLaunch=false;
@@ -191,12 +233,14 @@ struct App {
         const auto result=launch::Evaluate(evidence,observation.facts);
         if(result!=launch::Result::Waiting){
             FinishLaunch(result);
-            if(!fresh){observation={};Refresh();}
+            if(!fresh){observation={};Refresh(RefreshOrigin::Launch);}
             Layout();
-        }else if(!fresh)Refresh();
+        }else if(!fresh)Refresh(RefreshOrigin::Launch);
     }
     void Accept(){
-        {std::lock_guard lock(box->mutex);if(!box->ready)return;if(box->result)observation=std::move(*box->result);else observation={};box->result.reset();box->ready=false;}
+        ULONGLONG generation=0,started=0;
+        {std::lock_guard lock(box->mutex);if(!box->ready)return;generation=box->generation;started=box->started;
+            if(box->result)observation=std::move(*box->result);else observation={};box->result.reset();box->ready=false;}
         refreshing=false;
         const auto& session=observation.facts.session;
         bool partial=false;
@@ -214,11 +258,37 @@ struct App {
         if(observation.displayError){partial=true;Note(L"Display information unavailable or incomplete. Error "+std::to_wstring(observation.displayError)+L".");}
         if(!observation.inputs.complete){partial=true;Note(L"Some keyboard or mouse identities could not be verified. Devices shows the incomplete observation.");}
         if(!observation.memoryKnown){partial=true;Note(L"Computer memory information unavailable. Error "+std::to_wstring(observation.memoryError)+L".");}
-        if(!launchedViewer.value||partial)Note(partial?L"Refresh finished with unavailable details. See the observations below.":L"Desktop and display information refreshed. No session settings changed.");ObserveLaunch(true);Layout();
+        if(!launchedViewer.value||partial)Note(partial?L"Refresh finished with unavailable details. See the observations below.":L"Desktop and display information refreshed. No session settings changed.");
+        ObserveLaunch(true);
+        if(actionIntent.Pending()){
+            const auto fresh=ActionTarget();
+            const auto outcome=actionIntent.Resolve(fresh,generation,started,GetTickCount64(),active,closing,launchPending);
+            if(outcome==intent::Outcome::Ready){KillTimer(window,ActionIntentTimer);ExecuteValidated(fresh.decision);}
+            else if(outcome==intent::Outcome::Cancelled){KillTimer(window,ActionIntentTimer);IntentCancellationNote();}
+            else if(outcome==intent::Outcome::Waiting)Refresh(RefreshOrigin::Validation);
+        }
+        Layout();
     }
     void Open(){
-        if(preview||refreshing||launchPending)return;
-        const auto decision=Current();
+        if(preview||launchPending||closing||!active||actionIntent.Pending()||
+            (refreshing&&refreshOrigin!=RefreshOrigin::Activation))return;
+        const auto button=ButtonDecision();const auto target=ActionTarget();
+        if(!target.valid||button.action!=target.decision.action||button.child!=target.decision.child||
+            (CanLaunch(target.decision)&&launchedViewer.value)||refreshGeneration==~0ull)return;
+        // This is the only path that creates an intent. Activation, inventory,
+        // timeouts and deferred messages can never request a desktop action.
+        if(!actionIntent.Begin(target,GetTickCount64(),refreshGeneration+1))return;
+        if(!SetTimer(window,ActionIntentTimer,250,nullptr)){
+            CancelIntent(intent::Reason::Uncertain);Layout();return;
+        }
+        Note(L"Checking fresh session information for the action you selected.");Layout();
+        if(!refreshing)Refresh(RefreshOrigin::Validation);
+    }
+    void ExecuteValidated(const Decision& decision){
+        // The intent was consumed before entering this function. The viewer
+        // still performs its own admission immediately before session mutation.
+        if(preview||refreshing||launchPending||closing||!active)return;
+        if(CanLaunch(decision)&&launchedViewer.value){Note(L"A viewer launch is still being observed. No duplicate was started.");return;}
         if(decision.action==Action::ShowViewer){auto existing=observation.viewer;if(!ViewerMatches(existing,viewerPath,false)){Note(L"The observed viewer changed. Refresh before trying again.");Refresh();return;}
             if(IsIconic(existing.window))ShowWindow(existing.window,SW_RESTORE);
             if(!SetForegroundWindow(existing.window))Note(L"The viewer is open. Select it from the Windows taskbar.");
@@ -254,7 +324,7 @@ struct App {
         }
         else Note(error==ERROR_CANCELLED?L"Opening was cancelled. Existing desktops were left alone.":L"Windows could not start the viewer. Error "+std::to_wstring(error)+L".");
         if(execute.hProcess)CloseHandle(execute.hProcess);
-        Refresh();Layout();
+        Refresh(RefreshOrigin::Launch);Layout();
     }
     void Fill(HDC dc,RECT rect,COLORREF color)const {HBRUSH brush=CreateSolidBrush(color);FillRect(dc,&rect,brush);DeleteObject(brush);}
     void Round(HDC dc,RECT rect,COLORREF fill,COLORREF stroke,int radius=14)const {
@@ -370,18 +440,20 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp){
         for(const auto i:{0u,1u,6u,2u,3u,4u,5u})app->buttons[i]=CreateWindowExW(0,L"BUTTON",captions[i],WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW,0,0,1,1,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(ids[i])),app->instance,nullptr);
         app->statusLabel=CreateWindowW(L"STATIC",L"",WS_CHILD|WS_VISIBLE|SS_LEFT,0,0,1,1,window,nullptr,app->instance,nullptr);
         app->detailLabel=CreateWindowW(L"STATIC",L"",WS_CHILD|WS_VISIBLE|SS_LEFT,0,0,1,1,window,nullptr,app->instance,nullptr);
-        app->Fonts();app->Layout();if(app->preview){app->observation=Preview();app->Note(L"Design preview uses sample data. No session or device inventory was collected.");app->Layout();}else app->Refresh();return 0;}
-    case WM_COMMAND:{const int id=LOWORD(wp);if(id>=NavOverview&&id<=NavDevices){app->tab=id-NavOverview;app->Layout();}
+        app->Fonts();app->Layout();if(app->preview){app->observation=Preview();app->Note(L"Design preview uses sample data. No session or device inventory was collected.");app->Layout();}else app->Refresh(RefreshOrigin::Initial);return 0;}
+    case WM_COMMAND:{const int id=LOWORD(wp);if(id>=NavOverview&&id<=NavDevices){app->tab=id-NavOverview;if(app->tab!=0)app->CancelIntent(intent::Reason::Explicit);app->Layout();}
         else if(id==RefreshButton)app->Refresh();else if(id==OpenButton)app->Open();
-        else if(id==GuideButton)ShellExecuteW(window,L"open",L"https://github.com/kazah-png/RETSAR/blob/main/docs/DESKTOP.md",nullptr,nullptr,SW_SHOWNORMAL);return 0;}
+        else if(id==GuideButton){app->CancelIntent(intent::Reason::Explicit);app->Layout();ShellExecuteW(window,L"open",L"https://github.com/kazah-png/RETSAR/blob/main/docs/DESKTOP.md",nullptr,nullptr,SW_SHOWNORMAL);}return 0;}
     case WM_ACTIVATE:
-        app->activationRefresh.SetActive(LOWORD(wp)!=WA_INACTIVE,app->preview,app->closing);
-        app->ScheduleActivationRefresh();return DefWindowProcW(window,message,wp,lp);
+        app->active=LOWORD(wp)!=WA_INACTIVE;
+        if(!app->active)app->CancelIntent(intent::Reason::Inactive,!app->closing);
+        app->activationRefresh.SetActive(app->active,app->preview,app->closing);
+        app->ScheduleActivationRefresh();app->Layout();return DefWindowProcW(window,message,wp,lp);
     case ActivationRefreshReady:
-        if(app->activationRefresh.Take(app->refreshing||app->launchPending,app->preview,app->closing))app->Refresh();
+        if(app->activationRefresh.Take(app->refreshing||app->launchPending||app->actionIntent.Pending(),app->preview,app->closing))app->Refresh(RefreshOrigin::Activation);
         return 0;
     case RefreshReady:if(!app->closing)app->Accept();return 0;
-    case WM_TIMER:if(wp==LaunchTimer)app->ObserveLaunch(false);return 0;
+    case WM_TIMER:if(wp==LaunchTimer)app->ObserveLaunch(false);else if(wp==ActionIntentTimer)app->PollIntent();return 0;
     case WM_SIZE:app->Layout();return 0;
     case WM_DPICHANGED:{app->dpi=HIWORD(wp);const auto* area=reinterpret_cast<const RECT*>(lp);SetWindowPos(window,nullptr,area->left,area->top,area->right-area->left,area->bottom-area->top,SWP_NOZORDER|SWP_NOACTIVATE);app->Fonts();app->Layout();return 0;}
     case WM_GETMINMAXINFO:{auto* info=reinterpret_cast<MINMAXINFO*>(lp);MONITORINFO monitor{sizeof(monitor)};
@@ -391,8 +463,8 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp){
     case WM_ERASEBKGND:return 1;
     case WM_DRAWITEM:app->DrawButton(*reinterpret_cast<const DRAWITEMSTRUCT*>(lp));return TRUE;
     case WM_PAINT:{PAINTSTRUCT paint{};HDC dc=BeginPaint(window,&paint);RECT r{};GetClientRect(window,&r);if(app->buffer.Fit(dc,r.right,r.bottom)){app->Paint(app->buffer.dc);BitBlt(dc,0,0,r.right,r.bottom,app->buffer.dc,0,0,SRCCOPY);}else app->Paint(dc);EndPaint(window,&paint);return 0;}
-    case WM_CLOSE:{app->closing=true;app->activationRefresh.SetActive(false,app->preview,true);std::lock_guard lock(app->box->mutex);app->box->closed=true;DestroyWindow(window);return 0;}
-    case WM_DESTROY:app->closing=true;app->activationRefresh.SetActive(false,app->preview,true);PostQuitMessage(0);return 0;
+    case WM_CLOSE:{app->closing=true;app->CancelIntent(intent::Reason::Closing,false);app->activationRefresh.SetActive(false,app->preview,true);std::lock_guard lock(app->box->mutex);app->box->closed=true;DestroyWindow(window);return 0;}
+    case WM_DESTROY:app->closing=true;app->CancelIntent(intent::Reason::Closing,false);app->activationRefresh.SetActive(false,app->preview,true);PostQuitMessage(0);return 0;
     }return DefWindowProcW(window,message,wp,lp);
 }
 void Output(const char* value){const HANDLE stream=GetStdHandle(STD_OUTPUT_HANDLE);if(stream&&stream!=INVALID_HANDLE_VALUE){DWORD written=0;WriteFile(stream,value,static_cast<DWORD>(std::strlen(value)),&written,nullptr);}}

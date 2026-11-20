@@ -9,6 +9,12 @@ namespace seats::lab::child::ax {
 inline constexpr GUID ClientClass={0xa0c63c30,0xf08d,0x4ab4,{0x90,0x7c,0x34,0x90,0x5d,0x77,0x0c,0x7d}};
 inline constexpr GUID ClientEvents={0x336d5562,0xefa8,0x482e,{0x8c,0xb3,0xc5,0xc0,0xfc,0x7a,0x7d,0xb6}};
 inline constexpr UINT FrameSyncMessage=WM_APP+43;
+struct OutboundScope {
+    unsigned* depth;
+    explicit OutboundScope(unsigned* value)noexcept:depth(value){if(depth)++*depth;}
+    ~OutboundScope(){if(depth)--*depth;}
+    OutboundScope(const OutboundScope&)=delete;OutboundScope& operator=(const OutboundScope&)=delete;
+};
 inline bool KeyboardMessage(UINT message)noexcept{return message>=WM_KEYFIRST&&message<=WM_KEYLAST;}
 inline HRESULT NotifyFrameWindow(IOleInPlaceActiveObject* object,BOOL active,unsigned& outboundDepth)noexcept {
     if(!object)return E_POINTER;
@@ -134,6 +140,10 @@ public:
     IOleInPlaceObject* inplace=nullptr;
     unsigned* outboundDepth=nullptr;
     const bool* closing=nullptr;
+    const bool* stopRequested=nullptr;
+    bool* frameActivationPending=nullptr;
+    unsigned long long activeGeneration=0;
+    bool retiring=false;
     bool changingRect=false;
     Com<IOleInPlaceActiveObject> active;
     RECT Area()const noexcept{RECT r{};GetClientRect(window,&r);r.top=(headerHeight<r.bottom?headerHeight:r.bottom);return r;}
@@ -182,9 +192,34 @@ public:
     HRESULT STDMETHODCALLTYPE GetBorder(LPRECT)override{return E_NOTIMPL;}
     HRESULT STDMETHODCALLTYPE RequestBorderSpace(LPCBORDERWIDTHS)override{return INPLACE_E_NOTOOLSPACE;}
     HRESULT STDMETHODCALLTYPE SetBorderSpace(LPCBORDERWIDTHS)override{return S_OK;}
+    bool IsClosing()const noexcept{return retiring||(closing&&*closing)||(stopRequested&&*stopRequested);}
+    ~Site(){
+        retiring=true;window=nullptr;
+        // Publish null before releasing. A reentrant callback cannot install a
+        // new object while the owner is being destroyed.
+        auto* previous=active.value;active.value=nullptr;
+        if(previous){OutboundScope guard(outboundDepth);previous->Release();}
+    }
     HRESULT STDMETHODCALLTYPE SetActiveObject(IOleInPlaceActiveObject* object,LPCOLESTR)override {
-        if(object)object->AddRef();active.reset();active.value=object;
-        if(window)PostMessageW(window,FrameSyncMessage,0,0);return S_OK;
+        if(activeGeneration==~0ull||(outboundDepth&&*outboundDepth==~0u))return E_UNEXPECTED;
+        const auto generation=++activeGeneration;
+        if(object&&IsClosing())return E_ABORT;
+        OutboundScope guard(outboundDepth);
+        if(object)object->AddRef();
+        // AddRef may itself reenter the container. A newer callback owns the
+        // current registration and must not be overwritten by this older call.
+        const bool cancelled=object&&IsClosing();
+        if(generation!=activeGeneration||cancelled){
+            if(object)object->Release();
+            return cancelled?E_ABORT:S_OK;
+        }
+        auto* previous=active.value;active.value=object;
+        if(frameActivationPending&&!retiring)*frameActivationPending=true;
+        // Publish first: a callback from Release can replace or clear this new
+        // registration without the outer call clobbering its newer decision.
+        if(previous)previous->Release();
+        if(window&&!retiring)PostMessageW(window,FrameSyncMessage,0,0);
+        return S_OK;
     }
     HRESULT STDMETHODCALLTYPE InsertMenus(HMENU,LPOLEMENUGROUPWIDTHS)override{return E_NOTIMPL;}
     HRESULT STDMETHODCALLTYPE SetMenu(HMENU,HOLEMENU,HWND)override{return S_OK;}

@@ -7,6 +7,7 @@
 #include "child_session_viewport.hpp"
 #include "child_session_presentation.hpp"
 #include "child_session_resolution.hpp"
+#include "child_session_navigation.hpp"
 #include <dbt.h>
 #include <algorithm>
 #include <iostream>
@@ -54,6 +55,30 @@ presentation::Catalog PresentationMonitors()noexcept {
     result.complete=EnumDisplayMonitors(nullptr,nullptr,callback,reinterpret_cast<LPARAM>(&result))!=FALSE;
     return result;
 }
+struct NativeNavigation final:navigation::WindowApi {
+    HWND frame;HWND buttons[3];
+    NativeNavigation(HWND owner,HWND presentation,HWND resolution,HWND sizing)noexcept:
+        frame(owner),buttons{presentation,resolution,sizing}{}
+    bool ForegroundOwned()noexcept override{return frame&&GetForegroundWindow()==frame;}
+    HWND CurrentFocus()noexcept override{return GetFocus();}
+    bool OwnedChild(HWND target)noexcept override {
+        if(!frame||!target||!IsWindow(frame)||!IsWindow(target)||target==frame||!IsChild(frame,target))return false;
+        DWORD ownerProcess=0,targetProcess=0;
+        const DWORD ownerThread=GetWindowThreadProcessId(frame,&ownerProcess);
+        const DWORD targetThread=GetWindowThreadProcessId(target,&targetProcess);
+        return ownerThread==GetCurrentThreadId()&&targetThread==ownerThread&&
+            ownerProcess==GetCurrentProcessId()&&targetProcess==ownerProcess;
+    }
+    bool Available(HWND target)noexcept override{return IsWindowVisible(target)&&IsWindowEnabled(target);}
+    bool Toolbar(HWND target)noexcept override {
+        return target&&(target==buttons[0]||target==buttons[1]||target==buttons[2]);
+    }
+    bool Descendant(HWND parent,HWND child)noexcept override{return IsChild(parent,child)!=FALSE;}
+    DWORD Set(HWND target)noexcept override {
+        SetLastError(ERROR_SUCCESS);const HWND previous=SetFocus(target);
+        return previous?ERROR_SUCCESS:GetLastError();
+    }
+};
 struct App {
     HWND window=nullptr,sizingButton=nullptr,presentationButton=nullptr,resolutionButton=nullptr;Site site;Events events;
     resolution::Pending resolutionPending;resolution::Result resolutionCallResult;bool resolutionCallCompleted=false;
@@ -63,6 +88,8 @@ struct App {
     DWORD resolutionTimerError=ERROR_SUCCESS;
     wchar_t resolutionNotice[192]{};
     presentation::State screen;presentation::Shortcut presentationShortcut;
+    navigation::Keys navigationKeys;navigation::Action navigationPending=navigation::Action::None;
+    HWND navigationOrigin=nullptr;bool navigating=false;
     bool enterPresentationPending=false,exitPresentationPending=false,topologyPending=false,viewportPending=false,viewSyncQueued=false,drainingView=false;
     wchar_t presentationNotice[192]{};
     bool sizingKnown=false,fitDesktop=false,changingSizing=false;HRESULT sizingResult=E_PENDING;
@@ -378,8 +405,69 @@ struct App {
         else swprintf_s(presentationNotice,L"Display change could not be verified (error %lu). Use Back to window to retry.",result.error);
         ConfigureAppearance(GetDpiForWindow(window));viewportPending=true;
     }
+    bool KnownToolbar(HWND target)const noexcept {
+        return target&&(target==presentationButton||target==resolutionButton||target==sizingButton);
+    }
+    void QueueNavigation(navigation::Action action,HWND origin=nullptr)noexcept {
+        if(action==navigation::Action::None||navigating||closing||finished||cleanupStarted||stopRequested)return;
+        // A focus-release callback only stores intent. Never focus or call the
+        // control from inside its event callback or its nested message pump.
+        if(action==navigation::Action::First&&navigationPending!=navigation::Action::None)return;
+        navigationPending=action;navigationOrigin=origin;ScheduleView();
+    }
+    void RecordNavigation(const navigation::Result& value)noexcept {
+        try {
+            std::ostringstream out;out.imbue(std::locale::classic());
+            out<<"{\"schema\":\"retsar.child-session-navigation.v1\",\"target\":\""
+                <<(value.target==navigation::Target::Desktop?"desktop":"toolbar")
+                <<"\",\"elapsedMs\":"<<(GetTickCount64()-diagnosticEpoch)
+                <<",\"hresult\":"<<static_cast<ULONG>(value.result)
+                <<",\"attempted\":"<<(value.attempted?"true":"false")
+                <<",\"focusVerified\":"<<(value.verified?"true":"false")
+                <<",\"foregroundActivationAttempted\":false,\"physicalSeatVerified\":false}";
+            if(!Append(receipt,out.str()).succeeded)journalFailed=true;
+        }catch(...){journalFailed=true;}
+    }
+    void DrainNavigation()noexcept {
+        if(navigationPending==navigation::Action::None||!window||initializing||outboundDepth||
+            drainingView||screen.busy||changingSizing||matchingResolution||navigating)return;
+        const auto action=navigationPending;const HWND origin=navigationOrigin;
+        navigationPending=navigation::Action::None;navigationOrigin=nullptr;
+        if(closing||finished||cleanupStarted||stopRequested)return;
+        if((action==navigation::Action::Desktop||action==navigation::Action::First)&&!ResolutionReady())return;
+        NativeNavigation api(window,presentationButton,resolutionButton,sizingButton);
+        if(!api.ForegroundOwned())return;
+        const HWND focus=api.CurrentFocus();
+        if(action!=navigation::Action::First&&
+            (origin!=focus||!KnownToolbar(origin)||!api.OwnedChild(origin)||!api.Available(origin)))return;
+        if(action==navigation::Action::First&&
+            (KnownToolbar(focus)||(focus!=window&&!api.OwnedChild(focus))))return;
+        // Enter runs the same explicit action as clicking its native button.
+        // There is no synthetic key, dialog-wide Tab interception, or retry.
+        if(action==navigation::Action::Activate){
+            if(origin==presentationButton)RequestPresentation(screen.saved);
+            else if(origin==resolutionButton)RequestMatchScreen();
+            else if(origin==sizingButton)ToggleSizing();
+            return;
+        }
+        navigating=true;navigation::Result result;
+        if(action==navigation::Action::Desktop){
+            result=navigation::FocusDesktop(site.active.value,api,outboundDepth,&stopRequested,
+                &site.activeGeneration,site.activeGeneration);
+        }else {
+            const navigation::Button buttons[]={{presentationButton,api.Available(presentationButton)},
+                {resolutionButton,api.Available(resolutionButton)},{sizingButton,api.Available(sizingButton)}};
+            const HWND target=action==navigation::Action::First?navigation::First(buttons,std::size(buttons)):
+                navigation::Next(buttons,std::size(buttons),origin,action==navigation::Action::Previous);
+            result=navigation::FocusButton(api,target,outboundDepth,&stopRequested);
+        }
+        RecordNavigation(result);navigating=false;
+        if((stopRequested||journalFailed)&&!closing)BeginStop(journalFailed?"receipt-write":failureStage,
+            journalFailed?HRESULT_FROM_WIN32(ERROR_WRITE_FAULT):failure);
+        if(finished&&userCloseRequested&&window&&!destroyQueued)destroyQueued=PostMessageW(window,WM_CLOSE,0,0)!=FALSE;
+    }
     void DrainView()noexcept {
-        if(!window||initializing||outboundDepth||screen.busy||changingSizing||matchingResolution||drainingView)return;
+        if(!window||initializing||outboundDepth||screen.busy||changingSizing||matchingResolution||drainingView||navigating)return;
         drainingView=true;
         if(exitPresentationPending){
             exitPresentationPending=false;enterPresentationPending=false;topologyPending=false;
@@ -415,7 +503,7 @@ struct App {
     }
     void DisarmPollTimer()noexcept{if(window&&pollTimerArmed)KillTimer(window,PollTimer);pollTimerArmed=false;}
     void NotifyFrameActivation()noexcept {
-        if(!frameActivationPending||initializing||closing||finished||cleanupStarted||outboundDepth||!site.active)return;
+        if(!frameActivationPending||initializing||closing||finished||cleanupStarted||outboundDepth||navigating||!site.active)return;
         const bool active=frameActive;
         // Notify this owned control when its containing frame gains/loses activation.
         // No keyboard hook, global focus change, or remote key injection.
@@ -439,6 +527,7 @@ struct App {
     static void Event(void* context,DISPID id,DISPPARAMS* args)noexcept {
         auto& app=*static_cast<App*>(context);LONG value=0;bool present=false;
         app.RecordEvent(id,args);
+        if(id==23&&navigation::FocusReleased(args))app.QueueNavigation(navigation::Action::First);
         if(id==12){
             // Only this control's actual callback can supply resize evidence.
             app.resolutionPending.ObserveEvent(args,GetTickCount64());
@@ -475,6 +564,7 @@ struct App {
     HRESULT Prepare()noexcept {
         events.context=this;events.callback=Event;site.window=window;
         site.outboundDepth=&outboundDepth;site.closing=&closing;
+        site.stopRequested=&stopRequested;site.frameActivationPending=&frameActivationPending;
         HRESULT hr=Step("CoCreateInstance",CoCreateInstance(ClientClass,nullptr,CLSCTX_INPROC_SERVER,
             IID_IOleObject,reinterpret_cast<void**>(object.put())));
         if(FAILED(hr))return hr;
@@ -619,7 +709,8 @@ struct App {
     void BeginStop(const char* stage,HRESULT reason)noexcept {
         if(finished||closing||cleanupStarted)return;
         if(FAILED(reason)&&SUCCEEDED(failure)){failure=reason;failureStage=stage;}
-        if(initializing||outboundDepth||drainingView||screen.busy){stopRequested=true;return;}
+        if(initializing||outboundDepth||drainingView||screen.busy||navigating){stopRequested=true;return;}
+        navigationPending=navigation::Action::None;navigationOrigin=nullptr;
         CancelResolution();enterPresentationPending=false;if(screen.saved){exitPresentationPending=true;ScheduleView();}
         closing=true;closeStart=GetTickCount64();
         const bool timed=ArmPollTimer();
@@ -633,7 +724,8 @@ struct App {
     }
     void Cleanup()noexcept {
         if(finished||cleanupStarted)return;
-        if(outboundDepth||drainingView||screen.busy){stopRequested=true;return;}
+        if(outboundDepth||drainingView||screen.busy||navigating){stopRequested=true;return;}
+        navigationPending=navigation::Action::None;navigationOrigin=nullptr;
         CancelResolution();cleanupStarted=true;closing=true;
         LONG extendedReason=0;
         if(dispatch) {
@@ -644,7 +736,7 @@ struct App {
         if(point&&cookie){const auto hr=point->Unadvise(cookie);cookie=0;Record("UnadviseEvents",hr);}
         point.reset();events.callback=nullptr;
         if(object){Record("CloseOwnObject",object->Close(OLECLOSE_NOSAVE));object->SetClientSite(nullptr);}
-        site.inplace=nullptr;site.active.reset();inplace.reset();extended.reset();dispatch.reset();object.reset();
+        site.inplace=nullptr;site.SetActiveObject(nullptr,nullptr);inplace.reset();extended.reset();dispatch.reset();object.reset();
         if(client::NeedsSettingRestore(request,enableAttempted,restoreAttempted)) {
             restoreAttempted=true;Record("restore-intent");
             const auto restore=toggle_detail::Set(SystemToggleApi(),FALSE);
@@ -740,6 +832,9 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
         }
         case WM_ACTIVATE:
             app->frameActive=LOWORD(wp)!=WA_INACTIVE;app->frameActivationPending=true;
+            if(!app->frameActive){
+                app->navigationPending=navigation::Action::None;app->navigationOrigin=nullptr;
+            }
             PostMessageW(window,FrameSyncMessage,0,0);
             return DefWindowProcW(window,message,wp,lp);
         case FrameSyncMessage:app->NotifyFrameActivation();return 0;
@@ -754,7 +849,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
             if(wp==DBT_DEVNODES_CHANGED&&app->screen.saved){app->topologyPending=true;app->ScheduleView();}
             return DefWindowProcW(window,message,wp,lp);
         case ViewSyncMessage:
-            app->viewSyncQueued=false;app->DrainView();return 0;
+            app->viewSyncQueued=false;app->DrainView();app->DrainNavigation();return 0;
         case WM_TIMER:
             if(wp==PollTimer)app->Poll();
             else if(wp==ResolutionTimer){app->matchPollPending=true;app->ScheduleView();}
@@ -764,7 +859,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
         case WM_CLOSE:
             if(app->finished){
                 app->destroyQueued=false;
-                if(app->drainingView||app->screen.busy){app->userCloseRequested=true;return 0;}
+                if(app->drainingView||app->screen.busy||app->navigating||app->outboundDepth){app->userCloseRequested=true;return 0;}
                 DestroyWindow(window);return 0;
             }
             app->userCloseRequested=true;app->BeginStop("user-close",S_OK);return 0;
@@ -817,6 +912,8 @@ int wmain(int argc,wchar_t* argv[]) {
             <<"Match screen explicitly requests the image viewport size at 100 percent desktop/device scale, without reconnecting.\n"
             <<"Odd viewport widths round down by one pixel. Size confirmation needs a subsequent matching remote-size event within 10 seconds.\n"
             <<"A timeout does not undo or cancel an in-flight update. Initial-size property readback alone is never confirmation.\n"
+            <<"Ctrl+Alt+Left/Right releases desktop focus to the first available toolbar button.\n"
+            <<"Only on the toolbar: Tab / Shift+Tab selects, Enter activates, Escape returns to the owned desktop control.\n"
             <<"No ordinary RDP fallback, credentials, RDP-control fullscreen or physical device assignment.\n"
             <<"Help makes no COM, WTS, window or setting changes.\n";return 0;
     }
@@ -895,13 +992,22 @@ int wmain(int argc,wchar_t* argv[]) {
             // A nested COM message pump can consume FrameSyncMessage while the
             // outbound guard is held. Drain the retained request at this safe
             // outer boundary even after the observation timer has stopped.
-            app.NotifyFrameActivation();app.DrainView();
+            app.NotifyFrameActivation();app.DrainView();app.DrainNavigation();
             const bool ownedMessage=message.hwnd==window||IsChild(window,message.hwnd);
             bool exitPresentation=false;
             if(ownedMessage&&app.presentationShortcut.Handle(message.message,message.wParam,message.lParam,
                 GetForegroundWindow()==window,app.screen.saved,(GetKeyState(VK_CONTROL)&0x8000)!=0,(GetKeyState(VK_MENU)&0x8000)!=0,exitPresentation)){
                 if(exitPresentation)app.RequestPresentation(true);
                 app.DrainView();continue;
+            }
+            if(KeyboardMessage(message.message)){
+                const HWND focus=GetFocus();
+                const auto routed=app.navigationKeys.Handle(message.message,message.wParam,message.lParam,
+                    ownedMessage,GetForegroundWindow()==window,message.hwnd==focus&&app.KnownToolbar(focus),
+                    (GetKeyState(VK_SHIFT)&0x8000)!=0,(GetKeyState(VK_CONTROL)&0x8000)!=0,(GetKeyState(VK_MENU)&0x8000)!=0);
+                if(routed.consumed){
+                    app.QueueNavigation(routed.action,focus);app.DrainNavigation();app.DrainView();continue;
+                }
             }
             HRESULT translated=S_FALSE;
             const bool ownTarget=message.hwnd!=app.sizingButton&&message.hwnd!=app.presentationButton&&message.hwnd!=app.resolutionButton&&ownedMessage;
@@ -911,7 +1017,7 @@ int wmain(int argc,wchar_t* argv[]) {
                 if(app.stopRequested&&!app.closing)app.BeginStop(app.failureStage,app.failure);
             }
             if(translated!=S_OK){TranslateMessage(&message);DispatchMessageW(&message);}
-            app.NotifyFrameActivation();app.DrainView();
+            app.NotifyFrameActivation();app.DrainView();app.DrainNavigation();
         }
         if(messageResult<0) {
             const DWORD messageError=GetLastError();

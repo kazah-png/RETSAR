@@ -18,6 +18,12 @@ For an eligible disconnected child, **Resume desktop** chooses the mode matching
 
 A supervised enabled-baseline trial resumed the existing Notepad desktop with Fit to window visibly active. The user confirmed the sizing buttons and an additional close/resume cycle retaining Notepad; a later receipt inspection corroborated the first resumed viewer closing while preserving its enabled baseline without a setting mutation or restore attempt. No sizing-toggle or second-resumption event was present; those manual actions remain user-reported. This does not establish prolonged stability or compatibility on other hosts.
 
+## Keyboard controls
+
+Use **Ctrl+Alt+Left Arrow** or **Ctrl+Alt+Right Arrow** to request the Windows control's focus release into the viewer toolbar. Once a toolbar button has focus, use **Tab / Shift+Tab** to choose a control, **Enter** to activate it, and **Escape** to return to the desktop. The viewer must be active. See the [keyboard guide and validation limits](https://github.com/kazah-png/RETSAR/blob/main/docs/DESKTOP.md#keyboard-access-to-the-viewer-toolbar).
+
+The management console also retains an explicit Open/Resume/Show click made during its return-to-window refresh, then checks the same target again. Leaving the panel, a changed target or an expired request cancels that pending action.
+
 ## Present on a second monitor
 
 Once the desktop is connected, use **Use second monitor** in the viewer. The viewer must be a normal window, with exactly one secondary monitor available. **Back to window** restores it; **Ctrl+Alt+F12** is a local return shortcut while that viewer has focus. This keeps the child connection and presents it through the main Windows compositor. It does not exclusively assign the monitor or physical controls. Keep the viewer visible when checking continuity; minimizing can suppress remote image updates. [Standard-monitor scope and validation](https://github.com/kazah-png/RETSAR/blob/main/docs/STANDARD-MONITOR.md).
