@@ -4,6 +4,8 @@ Progress is organized by capability and evidence. A compiled component, simulate
 
 ## Desktop connection reliability
 
+[Public Windows CI](https://github.com/kazah-png/RETSAR/actions/runs/44749707526/job/136334089075) at [`b972712`](https://github.com/kazah-png/RETSAR/commit/b972712342dba4ffc63ab6c194db96f81922530b) passed **1,593 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. The downloadable `RETSAR-desktop-preview-windows-x64` artifact was generated successfully. This result validates the code contracts, not live session creation or keyboard independence.
+
 The console and experimental viewer now share listener classification. `WTSListen` rows remain visible metadata and are not queried for a signed-in user. Other query failures remain blocking; duplicate IDs and listeners masquerading as the parent or requested child are rejected. Injected-API tests cover failure cleanup without querying or changing Windows sessions.
 
 After an explicit viewer launch the console retains the exact launched process handle and samples startup through asynchronous read-only refreshes. Observation stops after a matching active child/viewer is seen, process exit, an observation error, or 90 seconds. Timeout preserves uncertainty and prevents duplicate launch while the process remains unresolved. It never reconnects or terminates a process automatically.
