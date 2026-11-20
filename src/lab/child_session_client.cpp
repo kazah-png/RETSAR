@@ -6,6 +6,7 @@
 #include "child_session_viewer_state.hpp"
 #include "child_session_viewport.hpp"
 #include "child_session_presentation.hpp"
+#include "child_session_resolution.hpp"
 #include <dbt.h>
 #include <algorithm>
 #include <iostream>
@@ -15,8 +16,8 @@ using namespace seats::lab::child;
 using namespace seats::lab::child::experiment;
 using namespace seats::lab::child::ax;
 constexpr UINT StepMessage=WM_APP+41,StopMessage=WM_APP+42;
-constexpr UINT_PTR PollTimer=41;
-constexpr int SizingButton=1040,PresentationButton=1041;
+constexpr UINT_PTR PollTimer=41,ResolutionTimer=42;
+constexpr int SizingButton=1040,PresentationButton=1041,ResolutionButton=1042;
 constexpr UINT ViewSyncMessage=WM_APP+44;
 constexpr ULONGLONG ConnectionDeadlineMs=60000,DisconnectDeadlineMs=5000;
 struct NativePresentation final:presentation::WindowApi {
@@ -54,7 +55,13 @@ presentation::Catalog PresentationMonitors()noexcept {
     return result;
 }
 struct App {
-    HWND window=nullptr,sizingButton=nullptr,presentationButton=nullptr;Site site;Events events;
+    HWND window=nullptr,sizingButton=nullptr,presentationButton=nullptr,resolutionButton=nullptr;Site site;Events events;
+    resolution::Pending resolutionPending;resolution::Result resolutionCallResult;bool resolutionCallCompleted=false;
+    resolution::Phase resolutionReported=resolution::Phase::Idle;
+    bool matchQueued=false,matchPollPending=false,matchingResolution=false,resolutionTimerArmed=false,resolutionPropertiesLogged=false;
+    LONG requestedViewportWidth=0,requestedViewportHeight=0;
+    DWORD resolutionTimerError=ERROR_SUCCESS;
+    wchar_t resolutionNotice[192]{};
     presentation::State screen;presentation::Shortcut presentationShortcut;
     bool enterPresentationPending=false,exitPresentationPending=false,topologyPending=false,viewportPending=false,viewSyncQueued=false,drainingView=false;
     wchar_t presentationNotice[192]{};
@@ -136,17 +143,31 @@ struct App {
         if(!sizingButton||!window)return;
         RECT client{};GetClientRect(window,&client);
         const bool compact=screen.saved;
-        ShowWindow(sizingButton,!compact||client.right>=Scale(440)?SW_SHOWNOACTIVATE:SW_HIDE);
+        ShowWindow(sizingButton,client.right>=Scale(600)?SW_SHOWNOACTIVATE:SW_HIDE);
         MoveWindow(sizingButton,std::max(0,static_cast<int>(client.right)-Scale(194)),Scale(compact?10:82),Scale(170),Scale(30),TRUE);
         SendMessageW(sizingButton,WM_SETFONT,reinterpret_cast<WPARAM>(bodyFont),TRUE);
         SetWindowTextW(sizingButton,sizingKnown&&fitDesktop?L"Actual size":L"Fit desktop");
-        EnableWindow(sizingButton,observed&&!initializing&&!closing&&!finished&&!cleanupStarted&&!changingSizing);
+        EnableWindow(sizingButton,observed&&!initializing&&!closing&&!finished&&!cleanupStarted&&!changingSizing&&!matchingResolution&&resolutionPending.phase!=resolution::Phase::Awaiting);
         if(presentationButton){
-            MoveWindow(presentationButton,compact?Scale(16):std::max(0,static_cast<int>(client.right)-Scale(398)),Scale(compact?10:82),compact?std::max(1,std::min(Scale(190),static_cast<int>(client.right)-Scale(32))):Scale(190),Scale(30),TRUE);
+            MoveWindow(presentationButton,Scale(compact?16:24),Scale(compact?10:82),compact?std::max(1,std::min(Scale(190),static_cast<int>(client.right)-Scale(32))):Scale(190),Scale(30),TRUE);
             SendMessageW(presentationButton,WM_SETFONT,reinterpret_cast<WPARAM>(bodyFont),TRUE);
             SetWindowTextW(presentationButton,compact?L"Back to window":L"Use second monitor");
             EnableWindow(presentationButton,screen.saved||(!initializing&&observed&&!closing&&!finished&&!cleanupStarted));
         }
+        LayoutResolution();
+    }
+    bool ResolutionReady()const noexcept {
+        return observed&&connected&&loggedIn&&!disconnected&&!initializing&&!closing&&!finished&&!cleanupStarted&&!stopRequested;
+    }
+    void LayoutResolution()noexcept {
+        if(!resolutionButton||!window)return;
+        RECT client{};GetClientRect(window,&client);const bool compact=screen.saved;
+        ShowWindow(resolutionButton,client.right>=Scale(400)?SW_SHOWNOACTIVATE:SW_HIDE);
+        MoveWindow(resolutionButton,Scale(compact?222:226),Scale(compact?10:82),Scale(140),Scale(30),TRUE);
+        SendMessageW(resolutionButton,WM_SETFONT,reinterpret_cast<WPARAM>(bodyFont),TRUE);
+        SetWindowTextW(resolutionButton,resolutionPending.phase==resolution::Phase::Awaiting?L"Matching...":L"Match screen");
+        EnableWindow(resolutionButton,ResolutionReady()&&!matchQueued&&!matchingResolution&&!changingSizing&&
+            resolutionPending.phase!=resolution::Phase::Awaiting&&screen.mode!=presentation::Mode::Recovery);
     }
     void UpdateStatus()noexcept{Status(Presentation().message);LayoutSizing();}
     void ApplySizing(bool fit)noexcept {
@@ -158,7 +179,7 @@ struct App {
         LayoutSizing();InvalidateHeader();
     }
     void ToggleSizing()noexcept {
-        if(!observed||initializing||closing||finished||cleanupStarted||outboundDepth||changingSizing)return;
+        if(!observed||initializing||closing||finished||cleanupStarted||outboundDepth||changingSizing||matchingResolution||resolutionPending.phase==resolution::Phase::Awaiting)return;
         ApplySizing(!sizingKnown||!fitDesktop);
         if(stopRequested||journalFailed)BeginStop(journalFailed?"receipt-write":failureStage,
             journalFailed?HRESULT_FROM_WIN32(ERROR_WRITE_FAULT):failure);
@@ -187,8 +208,10 @@ struct App {
         const auto text=[&](const wchar_t* value,RECT r,UINT flags)noexcept{DrawTextW(dc,value,-1,&r,flags|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX|DT_END_ELLIPSIS);};
         if(screen.saved){
             font(bodyFont);SetTextColor(dc,RGB(155,173,206));
-            text(presentationNotice[0]?presentationNotice:L"Screen presentation - Ctrl+Alt+F12 returns to window",
-                {Scale(222),Scale(10),bounds.right-Scale(210),Scale(40)},DT_LEFT);
+            const wchar_t* notice=closing||finished?status:presentationNotice[0]?presentationNotice:resolutionNotice[0]?resolutionNotice:L"Screen presentation - Ctrl+Alt+F12 returns to window";
+            const int noticeLeft=Scale(bounds.right>=Scale(400)?380:222);
+            const int noticeRight=bounds.right-Scale(bounds.right>=Scale(600)?210:24);
+            if(noticeRight>noticeLeft)text(notice,{noticeLeft,Scale(10),noticeRight,Scale(40)},DT_LEFT);
             if(saved)RestoreDC(dc,saved);return;
         }
         if(brandIcon)DrawIconEx(dc,Scale(24),Scale(11),brandIcon,Scale(32),Scale(32),0,nullptr,DI_NORMAL);
@@ -200,7 +223,7 @@ struct App {
         const bool badgeVisible=bounds.right>=Scale(660);
         const int statusRight=badgeVisible?bounds.right-Scale(238):bounds.right-Scale(24);
         font(bodyFont);SetTextColor(dc,RGB(155,173,206));
-        text(presentationNotice[0]?presentationNotice:status,{Scale(24),Scale(46),statusRight,Scale(72)},DT_LEFT);
+        text(closing||finished?status:presentationNotice[0]?presentationNotice:resolutionNotice[0]?resolutionNotice:status,{Scale(24),Scale(46),statusRight,Scale(72)},DT_LEFT);
         if(badgeVisible) {
             const int right=bounds.right-Scale(24),left=right-Scale(194);
             SetDCBrushColor(dc,RGB(21,30,49));RoundRect(dc,left,Scale(13),right,Scale(43),Scale(12),Scale(12));
@@ -219,10 +242,109 @@ struct App {
         const wchar_t* display=sizingKnown?(fitDesktop?L"Display: Fit to window":L"Display: Actual size"):
             L"Display: Sizing unavailable";
         if(FAILED(sizingResult)&&sizingResult!=E_PENDING)display=L"Display change was not confirmed. You can retry.";
-        text(display,{Scale(24),Scale(84),bounds.right-Scale(420),Scale(110)},DT_LEFT);
+        if(bounds.right>=Scale(900))text(display,{Scale(382),Scale(84),bounds.right-Scale(214),Scale(110)},DT_LEFT);
         SetDCBrushColor(dc,RGB(21,30,49));RECT line{0,bounds.bottom-1,bounds.right,bounds.bottom};
         FillRect(dc,&line,static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         if(saved)RestoreDC(dc,saved);
+    }
+    static const char* ResolutionPhase(resolution::Phase phase)noexcept {
+        switch(phase){case resolution::Phase::Awaiting:return "awaiting";case resolution::Phase::Confirmed:return "confirmed";
+        case resolution::Phase::Unsupported:return "unsupported";case resolution::Phase::Failed:return "failed";
+        case resolution::Phase::TimedOut:return "timed-out";case resolution::Phase::Cancelled:return "cancelled";default:return "idle";}
+    }
+    void RecordResolution(const char* stage,const resolution::Readback* properties=nullptr)noexcept {
+        try {
+            std::ostringstream out;out.imbue(std::locale::classic());
+            out<<"{\"schema\":\"retsar.child-session-resolution.v1\",\"stage\":\""<<stage
+                <<"\",\"elapsedMs\":"<<(GetTickCount64()-diagnosticEpoch)<<",\"phase\":\""<<ResolutionPhase(resolutionPending.phase)
+                <<"\",\"viewportWidth\":"<<requestedViewportWidth<<",\"viewportHeight\":"<<requestedViewportHeight
+                <<",\"requestedWidth\":"<<resolutionPending.requested.width<<",\"requestedHeight\":"<<resolutionPending.requested.height
+                <<",\"desktopScalePercent\":100,\"deviceScalePercent\":100,\"callCompleted\":"<<(resolutionCallCompleted?"true":"false")
+                <<",\"callHresult\":"<<static_cast<ULONG>(resolutionCallResult.result)
+                <<",\"phaseHresult\":"<<static_cast<ULONG>(resolutionPending.result.result)
+                <<",\"supported\":"<<(resolutionCallResult.supported?"true":"false")
+                <<",\"attempted\":"<<(resolutionCallResult.attempted?"true":"false")
+                <<",\"accepted\":"<<(resolutionCallResult.accepted?"true":"false")
+                <<",\"matchingSizeEventObserved\":"<<(resolutionPending.eventObserved?"true":"false")
+                <<",\"remoteSizeEventConfirmed\":"<<(resolutionPending.phase==resolution::Phase::Confirmed?"true":"false")
+                <<",\"observationTimerError\":"<<resolutionTimerError<<",\"controlProperties\":";
+            if(properties){out<<"{\"hresult\":"<<static_cast<ULONG>(properties->result)<<",\"known\":"<<(properties->known?"true":"false")
+                <<",\"width\":"<<properties->width<<",\"height\":"<<properties->height<<",\"confirmsRemoteSize\":false}";}
+            else out<<"null";
+            out<<",\"reconnectAttempted\":false,\"physicalSeatVerified\":false}";
+            if(!Append(receipt,out.str()).succeeded)journalFailed=true;
+        }catch(...){journalFailed=true;}
+    }
+    void DisarmResolutionTimer()noexcept {
+        if(window&&resolutionTimerArmed)KillTimer(window,ResolutionTimer);resolutionTimerArmed=false;
+    }
+    void RequestMatchScreen()noexcept {
+        if(!ResolutionReady()||matchQueued||matchingResolution||outboundDepth||drainingView||screen.busy||changingSizing||
+            resolutionPending.phase==resolution::Phase::Awaiting||screen.mode==presentation::Mode::Recovery)return;
+        presentationNotice[0]=L'\0';wcscpy_s(resolutionNotice,L"Preparing to match the desktop to this image area...");
+        matchQueued=true;LayoutSizing();InvalidateHeader();ScheduleView();
+    }
+    void CancelResolution()noexcept {
+        matchQueued=false;matchPollPending=false;DisarmResolutionTimer();
+        if(resolutionPending.phase==resolution::Phase::Awaiting){
+            resolutionPending.Cancel();resolutionReported=resolutionPending.phase;RecordResolution("resolution-cancelled");
+            wcscpy_s(resolutionNotice,L"Screen matching stopped.");
+        }
+    }
+    void UpdateResolutionObservation()noexcept {
+        matchPollPending=false;resolutionPending.Tick(GetTickCount64());
+        const auto phase=resolutionPending.phase;
+        if(phase!=resolution::Phase::Awaiting)DisarmResolutionTimer();
+        const bool changed=phase!=resolutionReported;
+        if(changed){
+            resolutionReported=phase;RecordResolution("resolution-state");
+            switch(phase){
+            case resolution::Phase::Awaiting:
+                swprintf_s(resolutionNotice,L"Requested %lu x %lu. Waiting for the desktop...",resolutionPending.requested.width,resolutionPending.requested.height);break;
+            case resolution::Phase::Confirmed:
+                swprintf_s(resolutionNotice,L"Resize confirmed: %lu x %lu.",resolutionPending.requested.width,resolutionPending.requested.height);break;
+            case resolution::Phase::Unsupported:wcscpy_s(resolutionNotice,L"Screen matching is not supported here. Use Fit desktop.");break;
+            case resolution::Phase::TimedOut:wcscpy_s(resolutionNotice,L"The size change was not confirmed within 10 seconds.");break;
+            case resolution::Phase::Failed:wcscpy_s(resolutionNotice,L"Could not request this size. Fit desktop is still available.");break;
+            case resolution::Phase::Cancelled:wcscpy_s(resolutionNotice,resolutionTimerError?L"Could not start size monitoring. No resize was requested.":L"Screen matching stopped.");break;
+            default:break;
+            }
+        }
+        // These initial-size properties are diagnostic only. Confirmation comes
+        // exclusively from a matching, subsequent size event plus accepted call.
+        if(phase!=resolution::Phase::Idle&&phase!=resolution::Phase::Awaiting&&ResolutionReady()&&
+            resolutionCallCompleted&&resolutionCallResult.attempted&&!resolutionPropertiesLogged){
+            resolutionPropertiesLogged=true;matchingResolution=true;
+            const auto properties=resolution::ReadProperties(dispatch.value,outboundDepth,&stopRequested);
+            matchingResolution=false;RecordResolution("resolution-control-properties",&properties);
+        }
+        if(changed){LayoutSizing();InvalidateHeader();}
+    }
+    void RunMatchScreen()noexcept {
+        matchQueued=false;
+        if(!ResolutionReady()||resolutionPending.phase==resolution::Phase::Awaiting||screen.mode==presentation::Mode::Recovery)return;
+        const RECT area=site.Area();requestedViewportWidth=area.right-area.left;requestedViewportHeight=area.bottom-area.top;
+        const auto settings=resolution::ForViewport(requestedViewportWidth,requestedViewportHeight);
+        if(!resolution::Valid(settings)){
+            wcscpy_s(resolutionNotice,L"This image area is outside the supported size. Resize the viewer and try again.");
+            Record("resolution-size-rejected",E_INVALIDARG);LayoutSizing();InvalidateHeader();return;
+        }
+        resolutionCallResult={};resolutionCallCompleted=false;resolutionPropertiesLogged=false;resolutionTimerError=ERROR_SUCCESS;
+        if(!resolutionPending.Begin(settings,GetTickCount64()))return;
+        resolutionReported=resolution::Phase::Idle; // A new request can finish in the same phase as its predecessor.
+        // Set the pending state BEFORE any COM call: the update can synchronously
+        // emit OnRemoteDesktopSizeChange through a nested message pump.
+        RecordResolution("resolution-intent");matchingResolution=true;LayoutSizing();
+        if(journalFailed)resolutionPending.Cancel();
+        else {
+            resolutionTimerArmed=window&&SetTimer(window,ResolutionTimer,250,nullptr)!=0;
+            if(!resolutionTimerArmed){resolutionTimerError=GetLastError();if(!resolutionTimerError)resolutionTimerError=ERROR_GEN_FAILURE;resolutionPending.Cancel();}
+            else {
+                resolutionCallResult=resolution::Request(dispatch.value,settings,outboundDepth,&stopRequested);resolutionCallCompleted=true;
+                resolutionPending.Complete(resolutionCallResult,GetTickCount64());RecordResolution("resolution-request");
+            }
+        }
+        matchingResolution=false;UpdateResolutionObservation();LayoutSizing();InvalidateHeader();
     }
     void ScheduleView()noexcept {
         if(window&&!viewSyncQueued){viewSyncQueued=PostMessageW(window,ViewSyncMessage,0,0)!=FALSE;}
@@ -257,7 +379,7 @@ struct App {
         ConfigureAppearance(GetDpiForWindow(window));viewportPending=true;
     }
     void DrainView()noexcept {
-        if(!window||initializing||outboundDepth||screen.busy||changingSizing||drainingView)return;
+        if(!window||initializing||outboundDepth||screen.busy||changingSizing||matchingResolution||drainingView)return;
         drainingView=true;
         if(exitPresentationPending){
             exitPresentationPending=false;enterPresentationPending=false;topologyPending=false;
@@ -281,6 +403,8 @@ struct App {
             ++outboundDepth;const HRESULT result=inplace->SetObjectRects(&area,&area);--outboundDepth;site.changingRect=wasChanging;
             if(FAILED(result))Record("ViewportRectFailed",result);
         }
+        if(matchQueued&&!closing&&!cleanupStarted)RunMatchScreen();
+        else if(matchPollPending&&!closing&&!cleanupStarted)UpdateResolutionObservation();
         drainingView=false;
         if((stopRequested||journalFailed)&&!closing)BeginStop(journalFailed?"receipt-write":failureStage,journalFailed?HRESULT_FROM_WIN32(ERROR_WRITE_FAULT):failure);
         if(finished&&userCloseRequested&&window&&!destroyQueued)destroyQueued=PostMessageW(window,WM_CLOSE,0,0)!=FALSE;
@@ -315,6 +439,11 @@ struct App {
     static void Event(void* context,DISPID id,DISPPARAMS* args)noexcept {
         auto& app=*static_cast<App*>(context);LONG value=0;bool present=false;
         app.RecordEvent(id,args);
+        if(id==12){
+            // Only this control's actual callback can supply resize evidence.
+            app.resolutionPending.ObserveEvent(args,GetTickCount64());
+            app.matchPollPending=true;app.ScheduleView();
+        }
         if(args&&args->cArgs>=1&&args->rgvarg) {
             if(args->rgvarg[0].vt==VT_I4){value=args->rgvarg[0].lVal;present=true;}
             else if(args->rgvarg[0].vt==VT_I2){value=args->rgvarg[0].iVal;present=true;}
@@ -491,7 +620,7 @@ struct App {
         if(finished||closing||cleanupStarted)return;
         if(FAILED(reason)&&SUCCEEDED(failure)){failure=reason;failureStage=stage;}
         if(initializing||outboundDepth||drainingView||screen.busy){stopRequested=true;return;}
-        enterPresentationPending=false;if(screen.saved){exitPresentationPending=true;ScheduleView();}
+        CancelResolution();enterPresentationPending=false;if(screen.saved){exitPresentationPending=true;ScheduleView();}
         closing=true;closeStart=GetTickCount64();
         const bool timed=ArmPollTimer();
         if(!timed)Record("disconnect-timer-unavailable",HRESULT_FROM_WIN32(GetLastError()));
@@ -505,7 +634,7 @@ struct App {
     void Cleanup()noexcept {
         if(finished||cleanupStarted)return;
         if(outboundDepth||drainingView||screen.busy){stopRequested=true;return;}
-        cleanupStarted=true;closing=true;
+        CancelResolution();cleanupStarted=true;closing=true;
         LONG extendedReason=0;
         if(dispatch) {
             const HRESULT hr=GetNumber(dispatch.value,L"ExtendedDisconnectReason",extendedReason);
@@ -572,13 +701,17 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
                 0,0,0,0,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(SizingButton)),GetModuleHandleW(nullptr),nullptr);
             app->presentationButton=CreateWindowExW(0,L"BUTTON",L"Use second monitor",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
                 0,0,0,0,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(PresentationButton)),GetModuleHandleW(nullptr),nullptr);
-            if(!app->sizingButton||!app->presentationButton)return -1;
+            app->resolutionButton=CreateWindowExW(0,L"BUTTON",L"Match screen",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
+                0,0,0,0,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(ResolutionButton)),GetModuleHandleW(nullptr),nullptr);
+            if(!app->sizingButton||!app->presentationButton||!app->resolutionButton)return -1;
             app->LayoutSizing();return 0;
         case WM_COMMAND:
             if(LOWORD(wp)==SizingButton&&HIWORD(wp)==BN_CLICKED&&reinterpret_cast<HWND>(lp)==app->sizingButton)
                 app->ToggleSizing();
             else if(LOWORD(wp)==PresentationButton&&HIWORD(wp)==BN_CLICKED&&reinterpret_cast<HWND>(lp)==app->presentationButton)
                 app->RequestPresentation(app->screen.saved);
+            else if(LOWORD(wp)==ResolutionButton&&HIWORD(wp)==BN_CLICKED&&reinterpret_cast<HWND>(lp)==app->resolutionButton)
+                app->RequestMatchScreen();
             return 0;
         case WM_ERASEBKGND: {
             const HDC dc=reinterpret_cast<HDC>(wp);RECT area{};GetClientRect(window,&area);
@@ -622,7 +755,10 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
             return DefWindowProcW(window,message,wp,lp);
         case ViewSyncMessage:
             app->viewSyncQueued=false;app->DrainView();return 0;
-        case WM_TIMER:if(wp==PollTimer)app->Poll();return 0;
+        case WM_TIMER:
+            if(wp==PollTimer)app->Poll();
+            else if(wp==ResolutionTimer){app->matchPollPending=true;app->ScheduleView();}
+            return 0;
         case StepMessage:app->Poll();return 0;
         case StopMessage:app->BeginStop(app->failureStage,app->failure);return 0;
         case WM_CLOSE:
@@ -678,6 +814,9 @@ int wmain(int argc,wchar_t* argv[]) {
             <<"Display requests fit by default; the header reports verified mode and toggles actual size without reconnecting.\n"
             <<"Use second monitor presents the host window on the unique secondary; Back to window / local Ctrl+Alt+F12 restores it without reconnecting.\n"
             <<"Presentation requires a normal (not maximized or minimized) viewer window.\n"
+            <<"Match screen explicitly requests the image viewport size at 100 percent desktop/device scale, without reconnecting.\n"
+            <<"Odd viewport widths round down by one pixel. Size confirmation needs a subsequent matching remote-size event within 10 seconds.\n"
+            <<"A timeout does not undo or cancel an in-flight update. Initial-size property readback alone is never confirmation.\n"
             <<"No ordinary RDP fallback, credentials, RDP-control fullscreen or physical device assignment.\n"
             <<"Help makes no COM, WTS, window or setting changes.\n";return 0;
     }
@@ -765,7 +904,7 @@ int wmain(int argc,wchar_t* argv[]) {
                 app.DrainView();continue;
             }
             HRESULT translated=S_FALSE;
-            const bool ownTarget=message.hwnd!=app.sizingButton&&message.hwnd!=app.presentationButton&&ownedMessage;
+            const bool ownTarget=message.hwnd!=app.sizingButton&&message.hwnd!=app.presentationButton&&message.hwnd!=app.resolutionButton&&ownedMessage;
             if(KeyboardMessage(message.message)&&ownTarget&&app.site.active&&!app.closing&&
                !app.cleanupStarted&&GetForegroundWindow()==window) {
                 translated=TranslateOwnedAccelerator(app.site.active.value,&message,app.outboundDepth);

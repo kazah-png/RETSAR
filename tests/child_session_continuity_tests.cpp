@@ -104,6 +104,61 @@ void GateTests() {
     fake.value.tokenKnown = false;
     Check(!Allowed(options, ReadIdentity(options, fake.Api())), "injected token query failure remains failure");
 }
+struct FakeDisplay {
+    DisplayModeResult value{true, DM_PELSWIDTH | DM_PELSHEIGHT, 1920, 1080, 0};
+    unsigned calls = 0;
+    static DisplayModeResult Read(void* context) noexcept {
+        auto& fake = *static_cast<FakeDisplay*>(context); ++fake.calls; return fake.value;
+    }
+    DisplayModeApi Api() noexcept { return {this, Read}; }
+};
+void DisplayTests() {
+    const auto options = Parse(Arguments());
+    FakeDisplay fake;
+    auto result = ReadDisplay({}, GoodIdentity(), fake.Api());
+    Check(!result.attempted && !result.sessionGuardAccepted && fake.calls == 0,
+        "inert options never query display metadata");
+    auto identity = GoodIdentity(); identity.process = options.reference;
+    result = ReadDisplay(options, identity, fake.Api());
+    Check(!result.attempted && result.policyError == ERROR_ACCESS_DENIED && fake.calls == 0,
+        "parent process cannot query display through child contract");
+    identity = GoodIdentity(); identity.expectedActive = false;
+    result = ReadDisplay(options, identity, fake.Api());
+    Check(!result.attempted && fake.calls == 0, "disconnected child cannot query final display metadata");
+    result = ReadDisplay(options, GoodIdentity(), {});
+    Check(!result.attempted && result.sessionGuardAccepted && result.policyError == ERROR_INVALID_FUNCTION,
+        "missing display API is unknown rather than a zero-size mode");
+    result = ReadDisplay(options, GoodIdentity(), fake.Api());
+    Check(result.attempted && result.succeeded && result.dimensionsKnown && result.width == 1920 &&
+        result.height == 1080 && result.policyError == ERROR_SUCCESS && fake.calls == 1,
+        "admitted query publishes dimensions only from both documented flags");
+    fake.value = {false, DM_PELSWIDTH | DM_PELSHEIGHT, 1920, 1080, ERROR_ACCESS_DENIED};
+    result = ReadDisplay(options, GoodIdentity(), fake.Api());
+    Check(result.attempted && !result.succeeded && !result.dimensionsKnown && !result.fields &&
+        !result.width && !result.height && result.lastErrorObserved == ERROR_ACCESS_DENIED,
+        "failed API cannot publish stale dimensions or flags");
+    fake.value.lastErrorObserved = 0;
+    result = ReadDisplay(options, GoodIdentity(), fake.Api());
+    Check(!result.succeeded && !result.dimensionsKnown && result.policyError == ERROR_GEN_FAILURE,
+        "FALSE remains failure even when API supplies no last-error");
+    for (const DWORD fields : {DWORD{0}, DWORD{DM_PELSWIDTH}, DWORD{DM_PELSHEIGHT}}) {
+        fake.value = {true, fields, 1920, 1080, 0};
+        result = ReadDisplay(options, GoodIdentity(), fake.Api());
+        Check(result.succeeded && !result.dimensionsKnown && !result.width && !result.height &&
+            result.policyError == ERROR_INVALID_DATA, "missing required field suppresses both dimensions");
+    }
+    for (unsigned zero = 0; zero != 2; ++zero) {
+        fake.value = {true, DM_PELSWIDTH | DM_PELSHEIGHT, zero ? DWORD{1920} : DWORD{0},
+            zero ? DWORD{0} : DWORD{1080}, 0};
+        result = ReadDisplay(options, GoodIdentity(), fake.Api());
+        Check(!result.dimensionsKnown && result.policyError == ERROR_INVALID_DATA,
+            "zero observed dimension is not a valid current mode");
+    }
+    fake.value = {true, DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL, 9001, 1081, 0};
+    result = ReadDisplay(options, GoodIdentity(), fake.Api());
+    Check(result.dimensionsKnown && result.width == 9001 && result.height == 1081,
+        "actual observation is not clamped to a separate resize request policy");
+}
 void CounterTests() {
     const auto options = Parse(Arguments());
     Check(!DurationReached(options, 29999), "deadline is not rounded up early");
@@ -130,7 +185,7 @@ void CounterTests() {
 }
 }
 int main() {
-    ArgumentTests(); GateTests(); CounterTests();
+    ArgumentTests(); GateTests(); DisplayTests(); CounterTests();
     std::cout << "Child session continuity: " << passed << " passed, " << failed
         << " failed; supplied values only, no windows, input or session queries.\n";
     return failed ? 1 : 0;

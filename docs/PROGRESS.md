@@ -2,11 +2,21 @@
 
 Progress is organized by capability and evidence. A compiled component, simulated transaction or existing session ID is not recorded as an operational native seat.
 
+## Optional desktop resolution requests
+
+The viewer now provides an explicit **Match screen** action separate from image scaling and borderless presentation. It requests the current image viewport at 100% scaling, with an even width, bounded dimensions and a 16-million-pixel preview limit. It neither reconnects the child nor changes the host monitor. Entering presentation, returning to a window and DPI notifications never request a resolution automatically.
+
+A request is guarded against reentrant COM callbacks and duplicate submission. The control must report a successful method result and a subsequent matching remote-size event; initial DesktopWidth/Height properties are diagnostic observations only. Unsupported methods, errors and expired confirmation waits are shown without claiming a successful change. The observation timeout cannot cancel a blocked COM method. A real child-mode resolution change can reposition application windows and increase rendering cost.
+
+The passive continuity worker additionally reads current display-mode dimensions at the start and end, after rechecking its exact process/token session admission. Failed queries or missing dimension flags remain unknown. These read-only measurements can corroborate a supervised child-size change; neither the measurements nor local paint counts prove delivered frames or physical isolation.
+
+The separately staged local desktop/physical build passed **1,669 focused checks**, including **107 resolution checks** and **81 continuity checks** (13 more than the preceding continuity contract). The final viewer also rebuilt successfully with warnings treated as errors and passed inert help. These tests use fake COM interfaces and supplied values; they do not open or resize a desktop. Public CI and supervised results are recorded separately. Live dynamic resolution, cost and application behavior are not yet verified. The previously verified secondary-monitor trial below remains evidence for presentation only.
+
 ## Standard-monitor presentation and visible continuity
 
 [Public Windows CI](https://github.com/kazah-png/RETSAR/actions/runs/44782710859/job/136449325109) at [`1dea764`](https://github.com/kazah-png/RETSAR/commit/1dea764f682055b43d4578ce875f43a8dd04a822) passed **2,045 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. It generated the `RETSAR-desktop-preview-windows-x64` artifact successfully. The run compiles the continuity worker and invokes only inert help/tests; it does not open a desktop or perform the supervised trial recorded below.
 
-The viewer now offers **Use second monitor** and **Back to window**. It requires one uniquely observed secondary monitor and a normal viewer window; incomplete, duplicate or ambiguous observations are rejected. The host window becomes borderless with a compact return toolbar, while the RDP control remains windowed and the child resolution remains 1024×768. No output is acquired, display configuration changed or child connection restarted. This is [host-composited presentation](STANDARD-MONITOR.md), not physical assignment.
+The viewer now offers **Use second monitor** and **Back to window**. It requires one uniquely observed secondary monitor and a normal viewer window; incomplete, duplicate or ambiguous observations are rejected. In that presentation trial, the host window became borderless with a compact return toolbar, while the RDP control stayed windowed and the child remained at 1024×768. No output was acquired, display configuration changed or child connection restarted. This is [host-composited presentation](STANDARD-MONITOR.md), not physical assignment.
 
 Position and style changes require readback. Failed entry attempts roll back or preserve an explicit recovery state. Topology and DPI notifications are deferred outside native/COM transitions. Teardown is also deferred during a native window transition. The local Ctrl+Alt+F12 return shortcut keeps its own down/up pair balanced; its live keyboard behavior remains untested. The existing return button stays available after connection or restoration errors.
 

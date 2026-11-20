@@ -35,6 +35,8 @@ RETSAR has opened and resumed a real native Windows child desktop on the tested 
 | **Engine** | Validated plans, reservations, durable receipts and conservative recovery; simulated effects in tests | Integration with a production native provider |
 | **Display research** | Observed console virtual-display lifecycle; remote IDD source builds and validates | Independent physical output and remote runtime acceptance |
 
+The viewer also includes an optional **Match screen** action to request the current viewing-area resolution. It is separate from image scaling; child-mode support and live results are tracked in the [desktop guide](docs/DESKTOP.md#matching-the-desktop-to-the-viewing-area).
+
 The [evidence record](docs/PROGRESS.md) distinguishes implemented code, inert tests and live observations. A green build is not proof of a working physical seat.
 
 ## Build and explore
@@ -103,4 +105,4 @@ Reports should describe a concrete problem, expected behavior and the environmen
 
 Original RETSAR code and visual assets are released under [MIT](LICENSE). Maintained by [kazah-png](https://github.com/kazah-png).
 
-Credits include **Ghidra**, **REA**, and assistance identified by the maintainer as **GPT-6 Astra ULTRA**. Their roles and provenance are recorded in [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md). They are not build dependencies or endorsements of the project.
+Credits include **Ghidra** and **REA**. Their roles and provenance are recorded in [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md). They are not build dependencies or endorsements of the project.

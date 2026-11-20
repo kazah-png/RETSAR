@@ -22,6 +22,8 @@ A supervised enabled-baseline trial resumed the existing Notepad desktop with Fi
 
 Once the desktop is connected, use **Use second monitor** in the viewer. The viewer must be a normal window, with exactly one secondary monitor available. **Back to window** restores it; **Ctrl+Alt+F12** is a local return shortcut while that viewer has focus. This keeps the child connection and presents it through the main Windows compositor. It does not exclusively assign the monitor or physical controls. Keep the viewer visible when checking continuity; minimizing can suppress remote image updates. [Standard-monitor scope and validation](https://github.com/kazah-png/RETSAR/blob/main/docs/STANDARD-MONITOR.md).
 
+Use **Match screen** to request that the child desktop use the current image area. This optional action can rearrange windows inside the child; it requests 100% scaling and never reconnects automatically. **Fit desktop** remains the separate image-scaling control. A missing size confirmation is reported, not assumed successful. Child-mode support and actual results are tracked in the [Desktop guide](https://github.com/kazah-png/RETSAR/blob/main/docs/DESKTOP.md#matching-the-desktop-to-the-viewing-area).
+
 For a clearly labelled interface demonstration without session or device inventory, run `RETSAR-Desktop.exe --preview`.
 
 [Source and verified progress](https://github.com/kazah-png/RETSAR) · [MIT license](https://github.com/kazah-png/RETSAR/blob/main/LICENSE)

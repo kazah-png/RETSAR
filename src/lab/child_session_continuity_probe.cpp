@@ -55,6 +55,40 @@ bool SessionActive(void*, DWORD session) noexcept {
 const IdentityApi SystemIdentity{nullptr, ProcessSession, TokenSession,
     NoImpersonation, ConsoleSession, SessionActive};
 
+// Current settings only; no mode enumeration, configuration, device names or
+// EDID. This API reports physical pixels without DPI virtualization.
+// https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-enumdisplaysettingsexw
+DisplayModeResult CurrentDisplayMode(void*) noexcept {
+    DEVMODEW mode{}; mode.dmSize = sizeof(mode);
+    SetLastError(ERROR_SUCCESS);
+    const bool succeeded = EnumDisplaySettingsExW(nullptr, ENUM_CURRENT_SETTINGS, &mode, 0) != FALSE;
+    const DWORD lastError = succeeded ? ERROR_SUCCESS : GetLastError();
+    DisplayModeResult result; result.succeeded = succeeded;
+    result.lastErrorObserved = lastError;
+    if (succeeded) {
+        result.fields = mode.dmFields;
+        if (mode.dmFields & DM_PELSWIDTH) result.width = mode.dmPelsWidth;
+        if (mode.dmFields & DM_PELSHEIGHT) result.height = mode.dmPelsHeight;
+    }
+    return result;
+}
+DisplayObservation ObserveDisplay(const Options& options) noexcept {
+    return ReadDisplay(options, ReadIdentity(options, SystemIdentity), {nullptr, CurrentDisplayMode});
+}
+void WriteDisplay(std::ostream& out, const DisplayObservation& display) {
+    out << "{\"sessionGuardAccepted\":" << (display.sessionGuardAccepted ? "true" : "false")
+        << ",\"queryAttempted\":" << (display.attempted ? "true" : "false")
+        << ",\"querySucceeded\":" << (display.succeeded ? "true" : "false")
+        << ",\"dimensionsKnown\":" << (display.dimensionsKnown ? "true" : "false")
+        << ",\"fields\":" << display.fields << ",\"width\":";
+    if (display.dimensionsKnown) out << display.width; else out << "null";
+    out << ",\"height\":";
+    if (display.dimensionsKnown) out << display.height; else out << "null";
+    out << ",\"policyError\":" << display.policyError << ",\"queryLastErrorObserved\":";
+    if (display.attempted && !display.succeeded) out << display.lastErrorObserved; else out << "null";
+    out << '}';
+}
+
 struct Probe {
     Options options;
     HANDLE receipt = INVALID_HANDLE_VALUE;
@@ -62,6 +96,7 @@ struct Probe {
     ULONGLONG started = 0;
     DWORD actualSession = MAXDWORD, error = ERROR_SUCCESS;
     Counters counters;
+    DisplayObservation initialDisplay;
     bool finished = false, completed = false, receiptWritten = false;
     ~Probe() { if (!finished) Finish("aborted", ERROR_CANCELLED); }
     ULONGLONG Elapsed() const noexcept { return GetTickCount64() - started; }
@@ -69,9 +104,11 @@ struct Probe {
         if (finished) return;
         finished = true; error = failure;
         const auto elapsed = Elapsed(); counters.Finish(elapsed);
-        completed = failure == ERROR_SUCCESS && DurationReached(options, elapsed) &&
-            counters.monotonic && counters.ticks > 0 && counters.paints > 0;
         if (window) KillTimer(window, AnimationTimer);
+        const auto finalDisplay = ObserveDisplay(options);
+        if (!finalDisplay.sessionGuardAccepted && error == ERROR_SUCCESS) error = ERROR_ACCESS_DENIED;
+        completed = error == ERROR_SUCCESS && DurationReached(options, elapsed) &&
+            counters.monotonic && counters.ticks > 0 && counters.paints > 0;
         try {
             std::ostringstream out; out.imbue(std::locale::classic());
             out << "{\"schema\":\"retsar.child-session-continuity.v1\",\"stage\":\"final\""
@@ -84,8 +121,10 @@ struct Probe {
                 << ",\"maxTickGapMs\":" << counters.maxTickGapMs
                 << ",\"maxPaintGapMs\":" << counters.maxPaintGapMs
                 << ",\"monotonic\":" << (counters.monotonic ? "true" : "false")
-                << ",\"error\":" << error
-                << ",\"inputInjected\":false,\"screenCaptured\":false,\"clientDisplayContinuityVerified\":false"
+                << ",\"error\":" << error << ",\"initialDisplay\":";
+            WriteDisplay(out, initialDisplay);
+            out << ",\"finalDisplay\":"; WriteDisplay(out, finalDisplay);
+            out << ",\"inputInjected\":false,\"screenCaptured\":false,\"clientDisplayContinuityVerified\":false"
                 << ",\"physicalIsolationVerified\":false}";
             receiptWritten = Append(receipt, out.str()).succeeded;
         } catch (...) { receiptWritten = false; }
@@ -154,6 +193,7 @@ int Run(int argc, wchar_t* argv[]) {
                 "Usage: RETSAR-child-session-continuity-probe.exe --duration-seconds <30..120> --expected-session <child> --reference-session <parent> --receipt <new-private.jsonl>\n"
                 "Own passive animation window only; no input, screenshots, hooks, focus stealing or tasks.\n"
                 "Counts local timer/paint work, not delivered video frames or physical isolation.\n"
+                "Initial/final current display-mode metadata is read inside the admitted child; no display settings are changed.\n"
                 "Requires actual process/token in the expected active child, distinct from the active console reference.\n"
                 "Help/default performs no session queries, windows or receipt writes; output uses inherited handles only.\n");
             return 0;
@@ -175,6 +215,10 @@ int Run(int argc, wchar_t* argv[]) {
             !length || length >= std::size(finalPath) || _wcsicmp(finalPath, expectedPath.c_str()) != 0) return 4;
         Probe probe; probe.options = options; probe.receipt = receipt.value;
         probe.actualSession = identity.process; probe.started = GetTickCount64();
+        probe.initialDisplay = ObserveDisplay(options);
+        if (!probe.initialDisplay.sessionGuardAccepted) {
+            probe.Finish("session-guard-lost", ERROR_ACCESS_DENIED); return 3;
+        }
         WNDCLASSEXW definition{sizeof(definition)};
         definition.lpfnWndProc = WindowProc; definition.hInstance = GetModuleHandleW(nullptr);
         definition.hCursor = LoadCursorW(nullptr, IDC_ARROW); definition.lpszClassName = WindowClass;

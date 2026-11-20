@@ -71,6 +71,46 @@ inline bool Allowed(const Options& options, const Identity& identity) noexcept {
         identity.token == options.expected && identity.console == options.reference &&
         identity.expectedActive && identity.referenceActive;
 }
+// A current mode is metadata from the admitted child session. It does not
+// establish that any frame reached the viewer or that hardware is assigned.
+struct DisplayModeResult {
+    bool succeeded = false;
+    DWORD fields = 0, width = 0, height = 0, lastErrorObserved = 0;
+};
+struct DisplayModeApi {
+    void* context = nullptr;
+    DisplayModeResult (*readCurrent)(void*) noexcept = nullptr;
+};
+struct DisplayObservation {
+    bool sessionGuardAccepted = false, attempted = false, succeeded = false, dimensionsKnown = false;
+    DWORD fields = 0, width = 0, height = 0;
+    DWORD policyError = ERROR_NOT_READY, lastErrorObserved = 0;
+};
+inline DisplayObservation ReadDisplay(const Options& options, const Identity& identity,
+    const DisplayModeApi& api) noexcept {
+    DisplayObservation result;
+    result.sessionGuardAccepted = Allowed(options, identity);
+    if (!result.sessionGuardAccepted) { result.policyError = ERROR_ACCESS_DENIED; return result; }
+    if (!api.readCurrent) { result.policyError = ERROR_INVALID_FUNCTION; return result; }
+    result.attempted = true;
+    const auto mode = api.readCurrent(api.context);
+    result.succeeded = mode.succeeded;
+    if (!mode.succeeded) {
+        // EnumDisplaySettingsEx documents a BOOL, not an extended error-code
+        // contract. Preserve last-error only as an observation, never success.
+        result.lastErrorObserved = mode.lastErrorObserved;
+        result.policyError = ERROR_GEN_FAILURE; return result;
+    }
+    result.fields = mode.fields;
+    constexpr DWORD dimensions = DM_PELSWIDTH | DM_PELSHEIGHT;
+    if ((mode.fields & dimensions) != dimensions || !mode.width || !mode.height) {
+        result.policyError = ERROR_INVALID_DATA; return result;
+    }
+    // Observe the actual mode even if it is outside a separate request policy.
+    result.width = mode.width; result.height = mode.height;
+    result.dimensionsKnown = true; result.policyError = ERROR_SUCCESS;
+    return result;
+}
 struct Counters {
     ULONGLONG ticks = 0, paints = 0, lastTickMs = 0, lastPaintMs = 0;
     ULONGLONG maxTickGapMs = 0, maxPaintGapMs = 0;
