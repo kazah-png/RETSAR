@@ -46,7 +46,7 @@ Closing the management console leaves the viewer and applications alone. Closing
 
 The viewer distinguishes preparation, connection, Windows confirmation, sign-in, desktop verification, connected state and cleanup. A transport connection or completed sign-in alone is never shown as a verified independent desktop. Windows confirmation stays interactive; RETSAR does not enter credentials.
 
-The earlier pilot exposed an F8 activation problem through the viewer. Activation and accelerator forwarding now retain their COM objects inside reentrancy guards, and pending activation is drained after the outer message dispatch. These fixes do not establish that F8 works in every application. Use an application's own controls when a shortcut does not arrive. Do not replace a working connected viewer merely to update it.
+The earlier pilot exposed an F8 activation problem through the viewer. Activation and accelerator forwarding now retain their COM objects inside reentrancy guards, and pending activation is drained after the outer message dispatch. A supervised manual check confirmed typing and F5 date/time insertion in Notepad inside RETSAR, followed by normal typing on the principal desktop. This does not establish that F8 works in Zzen or every application. Use an application's own controls when a shortcut does not arrive. Do not replace a working connected viewer merely to update it.
 
 The console and viewer retain Windows listener rows as metadata without asking them for a signed-in user. A listener is not a desktop. Failed identity queries on actual sessions still prevent opening; the listener exception cannot hide another signed-in user.
 

@@ -20,7 +20,7 @@ The user completed the Windows confirmation and reported seeing the child deskto
 
 An `OnLogonError(-2)` event preceded successful logon and the correlated active-child observation; the isolated event is not treated as a terminal failure. The inspected receipt contained no disconnect, fatal-error, deadline or cleanup event. Frame activation/deactivation notifications returned `S_OK` through the observed interval. The connection was left running.
 
-Automated window clicks and a system-menu shortcut did not visibly change the elevated viewer. That control limitation does not establish failure of the user's input inside it. A manual Notepad typing/function-key check was requested separately; it remains pending. This observation verifies this revision's new logical desktop connection, not application hotkey reliability, reconnect, sustained stability or exclusive physical devices.
+Automated window clicks and a system-menu shortcut did not visibly change the elevated viewer. That control limitation does not establish failure of the user's input inside it. In the subsequent manual check, the user confirmed typing in Notepad, successful F5 date/time insertion inside RETSAR, and normal typing on the principal desktop afterward. This is a user-reported functional check, separate from automated keyboard injection. It verifies ordinary text and one application function key in this supervised session; it does not resolve the earlier Zzen F8 issue or establish all-shortcut compatibility, reconnect, sustained stability or exclusive physical devices.
 
 ## General-purpose desktop console and product identity
 
