@@ -78,7 +78,7 @@ The native implementation uses the Windows UI stack rather than a bundled web ru
 
 ## Engineering and verification
 
-The verified [desktop preview CI revision](https://github.com/kazah-png/RETSAR/actions/runs/44749707526/job/136334089075) passed **1,593 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. The same run produced the downloadable desktop preview with its guide and checksums. These totals describe commit [`b972712`](https://github.com/kazah-png/RETSAR/commit/b972712342dba4ffc63ab6c194db96f81922530b); live desktop observations are tracked separately in [Verified progress](docs/PROGRESS.md).
+The verified [physical-resource preview CI revision](https://github.com/kazah-png/RETSAR/actions/runs/44777989415/job/136432833582) passed **1,914 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. The same run produced the downloadable desktop preview with its guide and checksums. These totals describe commit [`f7fa2b7`](https://github.com/kazah-png/RETSAR/commit/f7fa2b795c9dc5b0f5480229572ac523a3fb3195); kernel compilation and live hardware observations are tracked separately in [Verified progress](docs/PROGRESS.md).
 
 The core records intent before changes, associates resource receipts with their originating run and preserves uncertainty instead of guessing ownership. Tests use an explicit simulated provider. Native session, driver and device experiments remain opt-in; normal builds and CI do not change the host's session or device configuration.
 
