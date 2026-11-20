@@ -1,9 +1,12 @@
 #include "../src/lab/child_session_activex.hpp"
 #include "../src/lab/child_session_viewer_state.hpp"
+#include "../src/lab/child_session_close.hpp"
 #include <iostream>
 #include <string>
 #include <functional>
 #include <utility>
+#include <initializer_list>
+#include <cwchar>
 using namespace seats::lab::child::ax;
 namespace {
 unsigned passed=0,failed=0;
@@ -40,7 +43,38 @@ public:
     HRESULT STDMETHODCALLTYPE ResizeBorder(LPCRECT,IOleInPlaceUIWindow*,BOOL)override{return E_NOTIMPL;}
     HRESULT STDMETHODCALLTYPE EnableModeless(BOOL)override{return S_OK;}
 };
-}
+class ConnectionProperty final:public IDispatch {
+public:
+    unsigned& depth;ULONG refs=1;unsigned additions=0,releases=0,reads=0;
+    bool guarded=true,propertyOnly=true;HRESULT lookupResult=S_OK,readResult=S_OK;
+    VARTYPE type=VT_I2;LONG value=0;std::function<void()> duringRead,duringRelease;
+    explicit ConnectionProperty(unsigned& valueDepth):depth(valueDepth){}
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID,void** out)override{if(out)*out=nullptr;return E_NOINTERFACE;}
+    ULONG STDMETHODCALLTYPE AddRef()override{guarded=guarded&&depth==1;++additions;return ++refs;}
+    ULONG STDMETHODCALLTYPE Release()override{
+        guarded=guarded&&depth==1;++releases;--refs;
+        auto callback=std::move(duringRelease);duringRelease=nullptr;if(callback)callback();return refs;
+    }
+    HRESULT STDMETHODCALLTYPE GetTypeInfoCount(UINT* out)override{if(out)*out=0;return E_NOTIMPL;}
+    HRESULT STDMETHODCALLTYPE GetTypeInfo(UINT,LCID,ITypeInfo** out)override{if(out)*out=nullptr;return E_NOTIMPL;}
+    HRESULT STDMETHODCALLTYPE GetIDsOfNames(REFIID,LPOLESTR* names,UINT count,LCID,DISPID* out)override{
+        guarded=guarded&&depth==1&&refs==2;
+        propertyOnly=propertyOnly&&count==1&&names&&names[0]&&std::wcscmp(names[0],L"Connected")==0;
+        if(out)*out=41;return lookupResult;
+    }
+    HRESULT STDMETHODCALLTYPE Invoke(DISPID id,REFIID,LCID,WORD flags,DISPPARAMS* args,VARIANT* out,EXCEPINFO*,UINT*)override{
+        ++reads;guarded=guarded&&depth==1&&refs==2;
+        propertyOnly=propertyOnly&&id==41&&flags==DISPATCH_PROPERTYGET&&args&&args->cArgs==0&&args->cNamedArgs==0;
+        if(out){
+            out->vt=type;
+            if(type==VT_I2)out->iVal=static_cast<SHORT>(value);
+            else if(type==VT_I4)out->lVal=value;
+            else if(type==(VT_I4|VT_BYREF))out->plVal=&value;
+            else if(type==VT_BOOL)out->boolVal=VARIANT_FALSE;
+        }
+        auto callback=std::move(duringRead);duringRead=nullptr;if(callback)callback();return readResult;
+    }
+};}
 int main(){
     for(const UINT message:{WM_KEYDOWN,WM_KEYUP,WM_CHAR,WM_DEADCHAR,WM_SYSKEYDOWN,WM_SYSKEYUP,WM_SYSCHAR,WM_SYSDEADCHAR,WM_UNICHAR})
         Check(KeyboardMessage(message),"keyboard and system-key messages retain accelerator translation");
@@ -181,6 +215,116 @@ int main(){
             "destruction releases its sole retained reference and never retains a replacement");
     }
     namespace viewer=seats::lab::child::viewer;
+    namespace closure=seats::lab::child::closure;
+    {
+        VARIANT reason{};reason.vt=VT_I4;reason.lVal=1;DISPPARAMS args{&reason,nullptr,1,0};
+        Check(closure::DisconnectedEvent(&args),"documented one-LONG disconnect event supplies evidence");
+        for(const LONG value:{0L,3L,264L,-1L}){reason.lVal=value;
+            Check(closure::DisconnectedEvent(&args),"event validation does not mistake reason codes for transport state");}
+        Check(!closure::DisconnectedEvent(nullptr),"missing event arguments never confirm disconnection");
+        args.cArgs=0;Check(!closure::DisconnectedEvent(&args),"missing reason cannot confirm a disconnect event");
+        args.cArgs=2;Check(!closure::DisconnectedEvent(&args),"extra reason arguments are rejected");
+        args.cArgs=1;args.cNamedArgs=1;Check(!closure::DisconnectedEvent(&args),"named event arguments are rejected");
+        args.cNamedArgs=0;args.rgvarg=nullptr;Check(!closure::DisconnectedEvent(&args),"absent event values are rejected");
+        args.rgvarg=&reason;
+        for(const VARTYPE type:std::initializer_list<VARTYPE>{VT_I2,VT_UI4,VT_BOOL,static_cast<VARTYPE>(VT_I4|VT_BYREF),VT_EMPTY}){
+            reason.vt=type;Check(!closure::DisconnectedEvent(&args),"only the documented LONG reason can be closure evidence");}
+    }
+    {
+        unsigned readDepth=0;ConnectionProperty property(readDepth);
+        Check(closure::ReadConnected(nullptr,readDepth).result==E_POINTER&&readDepth==0,
+            "closure read without a control is unknown and has no side effects");
+        readDepth=1;const auto busy=closure::ReadConnected(&property,readDepth);
+        Check(busy.result==E_PENDING&&!busy.known&&property.additions==0&&readDepth==1,
+            "nested closure read never reenters the control");readDepth=0;
+        for(const VARTYPE type:std::initializer_list<VARTYPE>{VT_I2,VT_I4}){
+            property.type=type;const auto reading=closure::ReadConnected(&property,readDepth);
+            Check(reading.result==S_OK&&reading.known&&reading.value==0,
+                "S_OK with the native or supported integer zero is a positive readback");
+        }
+        for(const LONG value:{1L,2L,-1L,3L}){
+            property.value=value;const auto reading=closure::ReadConnected(&property,readDepth);
+            Check(reading.known&&reading.value==value,"active connecting and unknown integer states are preserved without becoming zero");
+        }
+        property.value=0;
+        for(const HRESULT result:{S_FALSE,E_FAIL,DISP_E_EXCEPTION}){
+            property.readResult=result;const auto reading=closure::ReadConnected(&property,readDepth);
+            Check(reading.result==result&&!reading.known,"a returned zero cannot conceal non-S_OK property results");
+        }
+        property.readResult=S_OK;
+        for(const VARTYPE type:std::initializer_list<VARTYPE>{VT_BOOL,VT_EMPTY,VT_UI4,static_cast<VARTYPE>(VT_I4|VT_BYREF)}){
+            property.type=type;const auto reading=closure::ReadConnected(&property,readDepth);
+            Check(reading.result==DISP_E_TYPEMISMATCH&&!reading.known,"coercible and by-reference values are not strict closure evidence");
+        }
+        property.type=VT_I2;property.lookupResult=DISP_E_UNKNOWNNAME;const auto beforeReads=property.reads;
+        Check(closure::ReadConnected(&property,readDepth).result==DISP_E_UNKNOWNNAME&&property.reads==beforeReads,
+            "missing property preserves its lookup error without invoking another member");
+        Check(property.propertyOnly&&property.guarded&&property.refs==1&&readDepth==0&&property.additions==property.releases,
+            "every closure read is a read-only property access with guarded balanced references");
+        property.lookupResult=S_OK;
+        viewer::ConnectionEnd end;end.connectAttempted=true;
+        auto revision=end.eventRevision;property.duringRead=[&](){end.ActiveEvent();};
+        auto reading=closure::ReadConnected(&property,readDepth);end.Read(reading.known,reading.value,revision);
+        Check(!end.Verified(),"active event inside a property read invalidates its older zero sample");
+        property.value=1;revision=end.eventRevision;property.duringRead=[&](){end.EndEvent();};
+        reading=closure::ReadConnected(&property,readDepth);end.Read(reading.known,reading.value,revision);
+        Check(end.Verified()&&end.Evidence()==viewer::EndEvidence::DisconnectedEvent,
+            "synchronous disconnect event survives an older active readback");
+        property.value=0;revision=end.eventRevision;property.duringRelease=[&](){end.ActiveEvent();};
+        reading=closure::ReadConnected(&property,readDepth);end.Read(reading.known,reading.value,revision);
+        Check(!end.Verified()&&property.refs==1&&readDepth==0,
+            "event delivered from Release also supersedes a stale zero without leaking a reference");
+    }
+    {
+        viewer::State stopped;stopped.closing=true;stopped.finished=true;stopped.baselineRestored=true;
+        Check(viewer::Present(stopped).phase==viewer::Phase::NotConnected&&!stopped.end.Verified()&&stopped.end.Satisfied(),
+            "closing before Connect is not presented as an observed disconnection");
+        Check(stopped.end.Evidence()==viewer::EndEvidence::NotAttempted,
+            "no transport attempt is distinguishable from positive end evidence");
+        stopped.end.EndEvent();
+        Check(!stopped.end.Verified(),"synchronous disconnect observation is retained but not claimed as an attempted connection yet");
+        stopped.end.connectAttempted=true;
+        Check(stopped.end.Verified()&&viewer::Present(stopped).phase==viewer::Phase::Disconnected,
+            "disconnect event delivered inside Connect remains evidence when the attempted call returns");
+        stopped.end={};stopped.end.connectAttempted=true;
+        Check(viewer::Present(stopped).phase==viewer::Phase::NeedsAttention,
+            "restoring Windows settings alone cannot claim that a transport ended");
+        stopped.end.deadlineExpired=true;
+        for(const bool enabled:{false,true}){
+            stopped.preserveEnabled=enabled;
+            const auto result=viewer::Present(stopped);
+            Check(result.phase==viewer::Phase::NeedsAttention&&std::wstring(result.badge)==L"CLOSE UNCONFIRMED"&&
+                std::wstring(result.message).find(L"deadline")!=std::wstring::npos,
+                "deadline uncertainty survives both restored-disabled and preserved-enabled policies");
+        }
+        stopped.end.Read(false,0,stopped.end.eventRevision);
+        Check(!stopped.end.Verified(),"failed Connected read carrying zero cannot resolve a timeout");
+        stopped.end.Read(true,0,stopped.end.eventRevision);
+        Check(stopped.end.Verified()&&stopped.end.Evidence()==viewer::EndEvidence::ConnectedZero&&
+            viewer::Present(stopped).phase==viewer::Phase::Disconnected,
+            "a positive final read can independently confirm disconnection after the observation deadline");
+        stopped.end.disconnectFailed=true;
+        Check(viewer::Present(stopped).phase==viewer::Phase::NeedsAttention&&stopped.end.Verified(),
+            "a failed Disconnect is still an error even when later evidence confirms the transport ended");
+        stopped.end.disconnectFailed=false;stopped.end.closeFailed=true;
+        Check(viewer::Present(stopped).phase==viewer::Phase::NeedsAttention&&stopped.end.Verified(),
+            "failed object closure cannot be hidden by positive transport and setting evidence");
+        stopped.end.closeFailed=false;stopped.operationFailed=true;
+        Check(viewer::Present(stopped).phase==viewer::Phase::NeedsAttention,
+            "a failed Connect attempt retains its earlier error even after a verified disconnect");
+        stopped.operationFailed=false;stopped.baselineRestored=false;
+        Check(viewer::Present(stopped).phase==viewer::Phase::NeedsAttention,
+            "positive connection-end evidence cannot conceal an unverified Windows baseline");
+        stopped.baselineRestored=true;stopped.end.ActiveEvent();
+        Check(!stopped.end.Verified()&&viewer::Present(stopped).phase==viewer::Phase::NeedsAttention,
+            "a newer connection event revokes older closure evidence");
+        stopped.end.EndEvent();stopped.end.Read(true,2,stopped.end.eventRevision);
+        Check(!stopped.end.Verified(),"a newer confirmed connecting state contradicts historical disconnection");
+        stopped.end={};stopped.end.connectAttempted=true;stopped.operationFailed=true;
+        Check(viewer::Present(stopped).phase==viewer::Phase::NeedsAttention&&
+            std::wstring(viewer::Present(stopped).badge)==L"CLOSE UNCONFIRMED",
+            "failed Connect with no end evidence never becomes an implicitly clean shutdown");
+    }
     viewer::State state;
     const auto phase=[&](){return viewer::Present(state).phase;};
     Check(phase()==viewer::Phase::Preparing,"initial presentation does not claim a connection");
@@ -200,8 +344,10 @@ int main(){
     Check(phase()==viewer::Phase::Disconnecting,"disconnect supersedes all earlier successful events");
     state.finished=true;
     Check(phase()==viewer::Phase::NeedsAttention,"unverified restoration cannot display clean disconnection");
-    state.baselineRestored=true;
-    Check(phase()==viewer::Phase::Disconnected,"completed verified restoration displays disconnection");
+    state.baselineRestored=true;state.end.connectAttempted=true;
+    Check(phase()==viewer::Phase::NeedsAttention,"completed restoration does not substitute for connection-end evidence");
+    state.end.EndEvent();
+    Check(phase()==viewer::Phase::Disconnected,"independently verified baseline and transport display disconnection");
     state.residualChild=true;
     Check(std::wstring(viewer::Present(state).message).find(L"may still be running")!=std::wstring::npos,
         "closing a viewer does not promise child logoff");

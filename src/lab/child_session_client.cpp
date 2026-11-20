@@ -8,6 +8,7 @@
 #include "child_session_presentation.hpp"
 #include "child_session_resolution.hpp"
 #include "child_session_navigation.hpp"
+#include "child_session_close.hpp"
 #include <dbt.h>
 #include <algorithm>
 #include <iostream>
@@ -99,6 +100,10 @@ struct App {
     Snapshot baseline{};Inventory inventory{};client::Request request{};
     bool enableAttempted=false,restoreAttempted=false,restored=false,finalBaselineRestored=false,finalBaselinePreserved=false;
     bool connectAttempted=false,childPropertyVerified=false;
+    viewer::ConnectionEnd connectionEnd;closure::Reading closeReading;
+    bool closeReadAttempted=false,disconnectCallAttempted=false,closeCallAttempted=false;
+    HRESULT disconnectCallResult=E_PENDING,closeCallResult=E_PENDING;
+    diagnostics::StateObservation closeObservation{};
     bool connected=false,loggedIn=false,disconnected=false;
     bool connectingEvent=false,authenticationPrompt=false,residualChild=false;
     bool observed=false,closing=false,finished=false,journalFailed=false;
@@ -155,16 +160,11 @@ struct App {
         wcsncpy_s(status,text,_TRUNCATE);InvalidateHeader();
     }
     viewer::Presentation Presentation()const noexcept {
-        auto result=viewer::Present({connectAttempted||connectingEvent,authenticationPrompt,connected,
-            loggedIn,observed,closing,finished,finalBaselineRestored||finalBaselinePreserved,FAILED(failure)||journalFailed,residualChild});
-        if(request.preserveEnabled){
-            if(finished){
-                if(!finalBaselinePreserved)result.message=L"Viewer disconnected. The existing Windows setting could not be verified. Check the diagnostic report.";
-                else if(FAILED(failure)||journalFailed)result.message=L"Connection stopped. The existing Windows setting remains enabled. Close this viewer, then refresh RETSAR Desktop.";
-                else result.message=residualChild?L"Viewer disconnected. The existing Windows setting remains enabled; your desktop may still be running.":L"Viewer disconnected. The existing Windows setting remains enabled.";
-            }else if(closing)result.message=L"Disconnecting this viewer. Preserving the existing Windows setting...";
-        }
-        return result;
+        viewer::State state{connectAttempted||connectingEvent,authenticationPrompt,connected,
+            loggedIn,observed,closing,finished,finalBaselineRestored||finalBaselinePreserved,
+            FAILED(failure)||journalFailed,residualChild};
+        state.end=connectionEnd;state.preserveEnabled=request.preserveEnabled;
+        return viewer::Present(state);
     }
     void LayoutSizing()noexcept {
         if(!sizingButton||!window)return;
@@ -539,11 +539,14 @@ struct App {
         }
         // Documented DISPIDs, never event strings or user names.
         // https://learn.microsoft.com/windows/win32/termserv/imstscaxevents-interface
-        if(id==1)app.connectingEvent=true;
-        else if(id==2){app.connected=true;app.Record("OnConnected");}
+        if(id==1){app.connectingEvent=true;app.connectionEnd.ActiveEvent();}
+        else if(id==2){app.connected=true;app.connectionEnd.ActiveEvent();app.Record("OnConnected");}
         else if(id==3){app.loggedIn=true;app.authenticationPrompt=false;app.Record("OnLoginComplete");}
         else if(id==4) {
-            app.disconnected=true;app.Record("OnDisconnected",S_OK,value,present);
+            const bool valid=closure::DisconnectedEvent(args);
+            app.disconnected=true;app.Record("OnDisconnected",valid?S_OK:DISP_E_TYPEMISMATCH,value,present);
+            if(valid)app.connectionEnd.EndEvent();
+            else app.DeferStop("disconnected-event-invalid",DISP_E_TYPEMISMATCH);
             if(!app.closing)app.DeferStop("disconnected",E_FAIL);
         }else if(id==10) {
             app.Record("OnFatalError",S_OK,value,present);app.DeferStop("fatal-event",E_FAIL);
@@ -657,7 +660,7 @@ struct App {
         if(!Record("connect-intent")||stopRequested)return false;
         start=GetTickCount64();
         const auto connection=ConnectChildOnly(extended.value,dispatch.value,true,true,&stopRequested);
-        connectAttempted=connection.attempted;UpdateStatus();
+        connectAttempted=connection.attempted;connectionEnd.connectAttempted=connectAttempted;UpdateStatus();
         if(FAILED(Step("connect-gate-child-property",connection.propertyResult)))return false;
         if(!connectAttempted||FAILED(Step("Connect",connection.connectResult)))return false;
         UpdateStatus();
@@ -672,12 +675,26 @@ struct App {
             if(rows[i].SessionId==id&&rows[i].State==WTSActive)found=true;
         if(rows)WTSFreeMemory(rows);return found;
     }
+    void RememberCloseFailure(const char* stage,HRESULT result)noexcept {
+        if(SUCCEEDED(failure)){failure=FAILED(result)?result:E_UNEXPECTED;failureStage=stage;}
+    }
+    void ReadCloseState(bool finalRead)noexcept {
+        if(!connectAttempted||!dispatch)return;
+        const auto revision=connectionEnd.eventRevision;
+        closeReading=closure::ReadConnected(dispatch.value,outboundDepth);closeReadAttempted=true;
+        connectionEnd.Read(closeReading.known,static_cast<int>(closeReading.value),revision);
+        if(finalRead||closeObservation.Changed(closeReading.result,closeReading.value))
+            Record(finalRead?"close-final-connected":"close-connected-state",closeReading.result,
+                closeReading.value,closeReading.known);
+    }
     void Poll()noexcept {
         if(finished||initializing||cleanupStarted||outboundDepth)return;
         if(closing) {
-            LONG state=-1;
-            ++outboundDepth;const HRESULT hr=GetNumber(dispatch.value,L"Connected",state);--outboundDepth;
-            if(disconnected||(SUCCEEDED(hr)&&state==0)||GetTickCount64()-closeStart>=DisconnectDeadlineMs)Cleanup();
+            ReadCloseState(false);
+            if(connectionEnd.Satisfied())Cleanup();
+            else if(GetTickCount64()-closeStart>=DisconnectDeadlineMs){
+                connectionEnd.deadlineExpired=true;Record("disconnect-deadline",HRESULT_FROM_WIN32(ERROR_TIMEOUT));Cleanup();
+            }
             return;
         }
         if(!connectAttempted)return;
@@ -714,11 +731,16 @@ struct App {
         CancelResolution();enterPresentationPending=false;if(screen.saved){exitPresentationPending=true;ScheduleView();}
         closing=true;closeStart=GetTickCount64();
         const bool timed=ArmPollTimer();
-        if(!timed)Record("disconnect-timer-unavailable",HRESULT_FROM_WIN32(GetLastError()));
+        if(!timed){
+            const DWORD error=GetLastError();const HRESULT result=HRESULT_FROM_WIN32(error?error:ERROR_GEN_FAILURE);
+            Record("disconnect-timer-unavailable",result);RememberCloseFailure("disconnect-timer-unavailable",result);
+        }
         UpdateStatus();Record(stage,reason);
         if(connectAttempted&&dispatch) {
-            ++outboundDepth;const HRESULT hr=Invoke(dispatch.value,L"Disconnect",DISPATCH_METHOD);--outboundDepth;
-            Record("DisconnectOwnControl",hr);
+            disconnectCallAttempted=true;
+            ++outboundDepth;disconnectCallResult=Invoke(dispatch.value,L"Disconnect",DISPATCH_METHOD);--outboundDepth;
+            connectionEnd.disconnectFailed=disconnectCallResult!=S_OK;Record("DisconnectOwnControl",disconnectCallResult);
+            if(connectionEnd.disconnectFailed)RememberCloseFailure("DisconnectOwnControl",disconnectCallResult);
             if(!timed)Cleanup();
         }else Cleanup();
     }
@@ -727,6 +749,10 @@ struct App {
         if(outboundDepth||drainingView||screen.busy||navigating){stopRequested=true;return;}
         navigationPending=navigation::Action::None;navigationOrigin=nullptr;
         CancelResolution();cleanupStarted=true;closing=true;
+        // Last read while the control and its event subscription still exist.
+        // Neither releasing the COM object nor restoring a setting proves that
+        // this client's transport has ended.
+        ReadCloseState(true);
         LONG extendedReason=0;
         if(dispatch) {
             const HRESULT hr=GetNumber(dispatch.value,L"ExtendedDisconnectReason",extendedReason);
@@ -735,8 +761,19 @@ struct App {
         // Only this owned control is closed. No session-directed API or logoff.
         if(point&&cookie){const auto hr=point->Unadvise(cookie);cookie=0;Record("UnadviseEvents",hr);}
         point.reset();events.callback=nullptr;
-        if(object){Record("CloseOwnObject",object->Close(OLECLOSE_NOSAVE));object->SetClientSite(nullptr);}
+        if(object){
+            closeCallAttempted=true;
+            ++outboundDepth;closeCallResult=object->Close(OLECLOSE_NOSAVE);--outboundDepth;
+            connectionEnd.closeFailed=closeCallResult!=S_OK;Record("CloseOwnObject",closeCallResult);
+            if(connectionEnd.closeFailed)RememberCloseFailure("CloseOwnObject",closeCallResult);
+            object->SetClientSite(nullptr);
+        }
         site.inplace=nullptr;site.SetActiveObject(nullptr,nullptr);inplace.reset();extended.reset();dispatch.reset();object.reset();
+        if(!connectionEnd.Satisfied()){
+            const HRESULT reason=connectionEnd.deadlineExpired?HRESULT_FROM_WIN32(ERROR_TIMEOUT):
+                closeReadAttempted&&FAILED(closeReading.result)?closeReading.result:E_UNEXPECTED;
+            Record("connection-end-unconfirmed",reason);RememberCloseFailure("connection-end-unconfirmed",reason);
+        }
         if(client::NeedsSettingRestore(request,enableAttempted,restoreAttempted)) {
             restoreAttempted=true;Record("restore-intent");
             const auto restore=toggle_detail::Set(SystemToggleApi(),FALSE);
@@ -762,6 +799,18 @@ struct App {
                 <<",\"baselineRestored\":"<<(baselineRestored?"true":"false")
                 <<",\"baselinePreserved\":"<<(finalBaselinePreserved?"true":"false")
                 <<",\"settingMutationOwned\":"<<(enableAttempted?"true":"false")
+                <<",\"connectAttempted\":"<<(connectAttempted?"true":"false")
+                <<",\"connectionEndVerified\":"<<(connectionEnd.Verified()?"true":"false")
+                <<",\"connectionEndEvidence\":\""<<viewer::EvidenceName(connectionEnd.Evidence())<<'"'
+                <<",\"disconnectDeadlineExpired\":"<<(connectionEnd.deadlineExpired?"true":"false")
+                <<",\"disconnectCallAttempted\":"<<(disconnectCallAttempted?"true":"false")
+                <<",\"disconnectCallHresult\":"<<static_cast<ULONG>(disconnectCallResult)
+                <<",\"closeCallAttempted\":"<<(closeCallAttempted?"true":"false")
+                <<",\"closeCallHresult\":"<<static_cast<ULONG>(closeCallResult)
+                <<",\"closeReadAttempted\":"<<(closeReadAttempted?"true":"false")
+                <<",\"closeReadHresult\":"<<static_cast<ULONG>(closeReading.result)
+                <<",\"closeReadKnown\":"<<(closeReading.known?"true":"false")
+                <<",\"closeReadValue\":"<<closeReading.value
                 <<",\"failureStage\":\""<<failureStage<<"\",\"failureHresult\":"<<static_cast<ULONG>(failure)
                 <<",\"journalFailed\":"<<(journalFailed?"true":"false")
                 <<",\"finalStatus\":"<<ToJson(final)<<",\"logoffAttempted\":false,\"physicalSeatVerified\":false}";
@@ -769,9 +818,15 @@ struct App {
         }catch(...){journalFailed=true;}
         finished=true;DisarmPollTimer();
         residualChild=final.child.succeeded&&final.child.value!=MAXDWORD;
+        if(Presentation().phase==viewer::Phase::NeedsAttention){
+            // Consume the first close request so all deferred close drains keep
+            // the result visible. A subsequent explicit X can still close the
+            // finished viewer without repeating cleanup or reconnecting.
+            userCloseRequested=false;destroyQueued=false;
+        }
         UpdateStatus();
         // Destruction is queued outside the COM cleanup stack. User-requested
-        // close needs one click; automatic connection failure can show results.
+        // clean close needs one click; uncertain or failed cleanup stays visible.
         if(userCloseRequested&&window)PostMessageW(window,WM_CLOSE,0,0);
     }
 };
@@ -1025,7 +1080,8 @@ int wmain(int argc,wchar_t* argv[]) {
         }
         if(!app.finished)app.BeginStop("message-loop-ended",app.failure);
         app.Cleanup();
-        return app.observed&&(app.finalBaselineRestored||app.finalBaselinePreserved)&&!app.journalFailed&&SUCCEEDED(app.failure)?0:2;
+        return app.observed&&app.connectionEnd.Verified()&&!app.connectionEnd.CallsFailed()&&
+            (app.finalBaselineRestored||app.finalBaselinePreserved)&&!app.journalFailed&&SUCCEEDED(app.failure)?0:2;
     }catch(...){std::cerr<<"Desktop viewer failed; inspect the private receipt.\n";return 5;}
 }
 

@@ -2,6 +2,16 @@
 
 Progress is organized by capability and evidence. A compiled component, simulated transaction or existing session ID is not recorded as an operational native seat.
 
+## Connection-end evidence and close results
+
+The viewer previously could finish its five-second close wait and show a normal disconnection solely because the Windows setting was restored or preserved. Failures from the disconnect request and object close were recorded but could disappear from the final presentation. Connection-end evidence is now independent of setting verification and operation errors.
+
+A valid [OnDisconnected](https://learn.microsoft.com/en-us/windows/win32/termserv/imstscaxevents-ondisconnected) callback from the subscribed control, or an exact successful integer [Connected = 0](https://learn.microsoft.com/en-us/windows/win32/termserv/imstscax-connected) observation before releasing that control, can confirm the connection ended. A successful `Disconnect` or `Close` call alone, an expired wait, a failed connection attempt and the release of COM references cannot. Callbacks delivered during a property read supersede the sampled value. A viewer stopped before attempting a connection reports that distinct outcome instead of inventing a disconnection event.
+
+Missing end evidence and failed disconnect/close operations remain visible after cleanup, including enabled-baseline resumption. The initial close request is consumed when attention is needed so deferred window messages cannot immediately hide the result. A second explicit X closes the already-stopped viewer without repeating cleanup. Normal confirmed closure keeps its one-click behavior. These changes do not log off the child, reconnect it, change the setting-restore policy or establish ownership of an existing child session.
+
+The separately staged desktop/physical build passed **2,026 focused checks**, including **135 viewer checks** (52 new closure checks). All 141 source/build/asset files matched the reviewed checkout. Compilation treated warnings as errors, and inert help and focused tests completed without failures. The new cases cover malformed events, failed and noncanonical property results, callbacks superseding sampled values, closure errors, deadlines and message priority for both baseline policies. These are fake-interface and supplied-state checks; no connection failure was induced in the user's running desktop. Live keyboard and closure validation remain pending.
+
 ## Desktop actions and keyboard navigation
 
 [Public Windows CI](https://github.com/kazah-png/RETSAR/actions/runs/44794756363/job/136491271458) at [`5f49333`](https://github.com/kazah-png/RETSAR/commit/5f49333c5634545eeea4360b542ce88018eeadc2) passed **2,470 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. The run produced the `RETSAR-desktop-preview-windows-x64` artifact with its usage guide and checksums. It performed no live desktop, focus or session operation.
