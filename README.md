@@ -23,14 +23,14 @@ RETSAR means **Runtime Environment for Terminal Sharing and Allocation of Resour
 
 ## The preview today
 
-RETSAR has opened and resumed a real native Windows child desktop on the tested Core-edition host. A bounded input experiment delivered mouse and keyboard input there while sampled parent state stayed unchanged. A subsequent one-account Roblox/Zzen pilot confirmed automatic replay while the user reported normal mouse and keyboard use on the principal desktop.
+RETSAR has opened and resumed a real native Windows child desktop on the tested Core-edition host. A bounded input experiment delivered mouse and keyboard input there while sampled parent state stayed unchanged. A subsequent one-account Roblox/Zzen pilot confirmed automatic replay while the user reported normal mouse and keyboard use on the principal desktop. A separate standard-monitor trial showed an animated child window continuing while the principal desktop was used, followed by verified return and re-entry without losing the child connection. [Standard-monitor results](docs/PROGRESS.md#supervised-standard-monitor-trial).
 
 **This is a development preview, not a production multiseat replacement.** General application compatibility, exclusive physical displays and devices, dependable session teardown, reconnect recovery and prolonged operation still require validation. The child desktop shares the user's profile; it is not a separate-account security boundary.
 
 | Area | Available now | Still to prove or complete |
 | --- | --- | --- |
 | **RETSAR Desktop** | Native management console with Overview, Displays, Devices and Activity views; read-only refresh and guarded viewer actions | Complete desktop lifecycle and device assignment |
-| **Desktop viewer** | Actual child-session creation and interactive resumption on the tested host | Unattended reconnect, reliable keyboard shortcuts and broader Windows coverage |
+| **Desktop viewer** | Actual child-session creation, interactive resumption and secondary-monitor presentation on the tested host | Unattended reconnect, reliable keyboard shortcuts and broader Windows coverage |
 | **Input** | Exact synthetic mouse/key receipt in the child; a supervised application pilot | Exclusive physical keyboard/mouse ownership and continuous isolation |
 | **Engine** | Validated plans, reservations, durable receipts and conservative recovery; simulated effects in tests | Integration with a production native provider |
 | **Display research** | Observed console virtual-display lifecycle; remote IDD source builds and validates | Independent physical output and remote runtime acceptance |
@@ -78,7 +78,7 @@ The native implementation uses the Windows UI stack rather than a bundled web ru
 
 ## Engineering and verification
 
-The verified [physical-resource preview CI revision](https://github.com/kazah-png/RETSAR/actions/runs/44777989415/job/136432833582) passed **1,914 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. The same run produced the downloadable desktop preview with its guide and checksums. These totals describe commit [`f7fa2b7`](https://github.com/kazah-png/RETSAR/commit/f7fa2b795c9dc5b0f5480229572ac523a3fb3195); kernel compilation and live hardware observations are tracked separately in [Verified progress](docs/PROGRESS.md).
+The verified [standard-monitor preview CI revision](https://github.com/kazah-png/RETSAR/actions/runs/44782710859/job/136449325109) passed **2,045 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. The same run produced the downloadable desktop preview with its guide and checksums. These totals describe commit [`1dea764`](https://github.com/kazah-png/RETSAR/commit/1dea764f682055b43d4578ce875f43a8dd04a822); the supervised secondary-monitor trial and remaining physical-seat limits are tracked separately in [Verified progress](docs/PROGRESS.md).
 
 The core records intent before changes, associates resource receipts with their originating run and preserves uncertainty instead of guessing ownership. Tests use an explicit simulated provider. Native session, driver and device experiments remain opt-in; normal builds and CI do not change the host's session or device configuration.
 

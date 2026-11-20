@@ -4,11 +4,13 @@ Progress is organized by capability and evidence. A compiled component, simulate
 
 ## Standard-monitor presentation and visible continuity
 
+[Public Windows CI](https://github.com/kazah-png/RETSAR/actions/runs/44782710859/job/136449325109) at [`1dea764`](https://github.com/kazah-png/RETSAR/commit/1dea764f682055b43d4578ce875f43a8dd04a822) passed **2,045 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. It generated the `RETSAR-desktop-preview-windows-x64` artifact successfully. The run compiles the continuity worker and invokes only inert help/tests; it does not open a desktop or perform the supervised trial recorded below.
+
 The viewer now offers **Use second monitor** and **Back to window**. It requires one uniquely observed secondary monitor and a normal viewer window; incomplete, duplicate or ambiguous observations are rejected. The host window becomes borderless with a compact return toolbar, while the RDP control remains windowed and the child resolution remains 1024×768. No output is acquired, display configuration changed or child connection restarted. This is [host-composited presentation](STANDARD-MONITOR.md), not physical assignment.
 
 Position and style changes require readback. Failed entry attempts roll back or preserve an explicit recovery state. Topology and DPI notifications are deferred outside native/COM transitions. Teardown is also deferred during a native window transition. The local Ctrl+Alt+F12 return shortcut keeps its own down/up pair balanced; its live keyboard behavior remains untested. The existing return button stays available after connection or restoration errors.
 
-A separately staged local desktop build passed **1,549 focused checks**: the preceding 1,418 plus 63 presentation and 68 continuity checks. The new continuity worker was also verified as a Windows GUI executable, avoiding a separate console, and its help/default/invalid-argument paths were checked without opening its window. Public CI coverage is recorded separately after completion.
+A separately staged local desktop build passed **1,549 focused checks**: the preceding 1,418 plus 63 presentation and 68 continuity checks. The new continuity worker was also verified as a Windows GUI executable, avoiding a separate console, and its help/default/invalid-argument paths were checked without opening its window. The complete public CI count above is separate from this focused local result; repeated checks must not be added together.
 
 ### Supervised standard-monitor trial
 
