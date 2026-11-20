@@ -17,6 +17,25 @@ inline HRESULT NotifyFrameWindow(IOleInPlaceActiveObject* object,BOOL active,uns
     const HRESULT result=object->OnFrameWindowActivate(active);
     object->Release();--outboundDepth;return result;
 }
+// A deferred activation survives nested message dispatch until an outer
+// message-loop boundary can safely deliver it.
+inline HRESULT NotifyPendingFrameWindow(IOleInPlaceActiveObject* object,BOOL active,
+    bool& pending,bool blocked,unsigned& outboundDepth)noexcept {
+    if(!pending)return S_FALSE;
+    if(blocked||outboundDepth||!object)return E_PENDING;
+    pending=false;return NotifyFrameWindow(object,active,outboundDepth);
+}
+// The caller supplies a message addressed to its own control/frame. The entire
+// COM reference lifetime is guarded, including potentially reentrant AddRef.
+inline HRESULT TranslateOwnedAccelerator(IOleInPlaceActiveObject* object,MSG* message,
+    unsigned& outboundDepth)noexcept {
+    if(!object||!message)return E_POINTER;
+    if(!KeyboardMessage(message->message))return S_FALSE;
+    if(outboundDepth)return E_PENDING;
+    ++outboundDepth;object->AddRef();
+    const HRESULT result=object->TranslateAccelerator(message);
+    object->Release();--outboundDepth;return result;
+}
 // Original declaration of the documented ABI; verified against MsTscAx's type library.
 // https://learn.microsoft.com/windows/win32/termserv/imsrdpextendedsettings-property
 struct __declspec(uuid("302d8188-0052-4807-806a-362b628f9ac5")) ExtendedSettings: IUnknown {

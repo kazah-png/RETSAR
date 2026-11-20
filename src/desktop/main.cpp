@@ -1,4 +1,5 @@
 #include "desktop_model.hpp"
+#include "launch_observation.hpp"
 #include <shellapi.h>
 #include <windowsx.h>
 #include <dwmapi.h>
@@ -15,6 +16,7 @@
 namespace {
 using namespace retsar::desktop;
 constexpr UINT RefreshReady=WM_APP+41;
+constexpr UINT_PTR LaunchTimer=72;
 constexpr int NavOverview=1010,NavDisplays=1011,NavActivity=1012,RefreshButton=1020,OpenButton=1021,GuideButton=1022;
 constexpr COLORREF Background=RGB(11,16,32),Sidebar=RGB(8,13,26),Surface=RGB(21,30,49),Border=RGB(39,53,77);
 constexpr COLORREF Accent=RGB(93,228,199),Cyan=RGB(121,207,242),Text=RGB(239,244,252),Muted=RGB(155,173,206),Amber=RGB(240,198,115);
@@ -67,6 +69,10 @@ Observation Read(const std::wstring& viewerPath) {
         out.facts.inventoryComplete=rows&&count>0&&count<=1024;
         if(!out.facts.inventoryComplete)out.inventoryError=ERROR_INVALID_DATA;
         if(out.facts.inventoryComplete)for(DWORD i=0;i<count;++i) {
+            if(!RequiresUserObservation(static_cast<int>(rows[i].State))) {
+                out.facts.rows.push_back({rows[i].SessionId,static_cast<int>(rows[i].State),false});
+                continue;
+            }
             LPWSTR name=nullptr;DWORD bytes=0;
             const BOOL valid=WTSQuerySessionInformationW(WTS_CURRENT_SERVER_HANDLE,rows[i].SessionId,WTSUserName,&name,&bytes);
             const DWORD error=valid?ERROR_SUCCESS:GetLastError();
@@ -110,6 +116,7 @@ struct BackBuffer {
 };
 struct App {
     HWND window=nullptr;HINSTANCE instance=nullptr;HICON appIcon=nullptr;UINT dpi=96;int tab=0;bool preview=false,refreshing=false,launchPending=false;
+    Handle launchedViewer;bool watchingLaunch=false;ULONGLONG launchedAt=0,launchedCreation=0;DWORD launchedPid=0,launchedParent=MAXDWORD,launchedChild=MAXDWORD;
     std::wstring viewerPath;Observation observation;std::shared_ptr<QueryBox> box=std::make_shared<QueryBox>();
     std::vector<std::wstring> activity;std::array<HWND,6> buttons{};HWND statusLabel=nullptr,detailLabel=nullptr;HBRUSH backgroundBrush=CreateSolidBrush(Background);HFONT title=nullptr,heading=nullptr,body=nullptr,fontSmall=nullptr;BackBuffer buffer;
     ~App(){CloseFonts();if(backgroundBrush)DeleteObject(backgroundBrush);std::lock_guard lock(box->mutex);box->closed=true;}
@@ -121,7 +128,7 @@ struct App {
     HFONT Font(int size,int weight)const noexcept{return CreateFontW(-P(size),0,0,0,weight,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");}
     void Fonts(){CloseFonts();title=Font(30,FW_SEMIBOLD);heading=Font(19,FW_SEMIBOLD);body=Font(14,FW_NORMAL);fontSmall=Font(12,FW_NORMAL);for(HWND b:buttons)if(b)SendMessageW(b,WM_SETFONT,reinterpret_cast<WPARAM>(body),TRUE);if(statusLabel)SendMessageW(statusLabel,WM_SETFONT,reinterpret_cast<WPARAM>(body),TRUE);if(detailLabel)SendMessageW(detailLabel,WM_SETFONT,reinterpret_cast<WPARAM>(fontSmall),TRUE);}
     void Note(std::wstring value){activity.insert(activity.begin(),std::move(value));if(activity.size()>8)activity.resize(8);InvalidateRect(window,nullptr,FALSE);}
-    Decision Current()const noexcept {if(refreshing||launchPending)return {Action::None,Availability::Loading};return Decide(observation.facts);}
+    Decision Current()const noexcept {if(refreshing||launchPending)return {Action::None,Availability::Loading};if(launchedViewer.value&&!observation.facts.verifiedViewerPresent)return {Action::None,watchingLaunch?Availability::Loading:Availability::Unknown};return Decide(observation.facts);}
     bool Compact()const noexcept{return Height()<720;}
     int CardY()const noexcept{return Compact()?126:145;}
     int CardHeight()const noexcept{return Compact()?142:188;}
@@ -151,6 +158,33 @@ struct App {
             mailbox->result=std::move(value);mailbox->ready=true;PostMessageW(target,RefreshReady,0,0);
         }).detach();}catch(...){refreshing=false;Note(L"Could not start the read-only refresh.");Layout();}
     }
+    void FinishLaunch(launch::Result result){
+        KillTimer(window,LaunchTimer);watchingLaunch=false;
+        // Retain a live/unknown launch handle after an observation timeout.
+        // Manual refresh can inspect it; uncertainty never enables a duplicate.
+        if((result==launch::Result::Connected||result==launch::Result::Exited)&&launchedViewer.value){CloseHandle(launchedViewer.value);launchedViewer.value=nullptr;}
+        switch(result){
+        case launch::Result::Connected:Note(L"An active child desktop and the launched viewer were observed. Automatic refresh has stopped.");break;
+        case launch::Result::Exited:Note(L"The launched viewer exited. Refresh to inspect the remaining desktop state.");break;
+        case launch::Result::TimedOut:Note(L"Automatic connection observation reached its limit. Check the viewer and use Refresh; no reconnect was attempted.");break;
+        default:Note(L"Automatic connection observation is unavailable. Check the viewer and use Refresh.");break;
+        }
+    }
+    void ObserveLaunch(bool fresh){
+        if(!launchedViewer.value||(!fresh&&!watchingLaunch))return;
+        const DWORD waited=WaitForSingleObject(launchedViewer.value,0);
+        const auto elapsed=watchingLaunch?GetTickCount64()-launchedAt:0;
+        const bool exact=launchedPid&&launchedCreation&&observation.viewer.process==launchedPid&&
+            observation.viewer.created==launchedCreation;
+        const launch::Evidence evidence{waited==WAIT_TIMEOUT,waited==WAIT_TIMEOUT||waited==WAIT_OBJECT_0,
+            fresh,exact,elapsed,launchedParent,launchedChild};
+        const auto result=launch::Evaluate(evidence,observation.facts);
+        if(result!=launch::Result::Waiting){
+            FinishLaunch(result);
+            if(!fresh){observation={};Refresh();}
+            Layout();
+        }else if(!fresh)Refresh();
+    }
     void Accept(){
         {std::lock_guard lock(box->mutex);if(!box->ready)return;if(box->result)observation=std::move(*box->result);else observation={};box->result.reset();box->ready=false;}
         refreshing=false;
@@ -169,7 +203,7 @@ struct App {
         }
         if(observation.displayError){partial=true;Note(L"Display information unavailable or incomplete. Error "+std::to_wstring(observation.displayError)+L".");}
         if(!observation.memoryKnown){partial=true;Note(L"Computer memory information unavailable. Error "+std::to_wstring(observation.memoryError)+L".");}
-        Note(partial?L"Refresh finished with unavailable details. See the observations below.":L"Desktop and display information refreshed. No session settings changed.");Layout();
+        if(!launchedViewer.value||partial)Note(partial?L"Refresh finished with unavailable details. See the observations below.":L"Desktop and display information refreshed. No session settings changed.");ObserveLaunch(true);Layout();
     }
     void Open(){
         if(preview||refreshing||launchPending)return;
@@ -194,10 +228,20 @@ struct App {
         const bool exact=GetFileInformationByHandle(pinned.value,&info)&&!(info.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))&&n&&n<std::size(finalPath)&&Equal(finalPath,L"\\\\?\\"+viewerPath);
         if(!exact){launchPending=false;Note(L"The desktop viewer path could not be verified.");Layout();return;}
         SHELLEXECUTEINFOW execute{sizeof(execute)};execute.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_NOASYNC;execute.hwnd=window;execute.lpVerb=L"runas";execute.lpFile=viewerPath.c_str();execute.lpParameters=args.c_str();execute.nShow=SW_SHOWNORMAL;
-        const BOOL launched=ShellExecuteExW(&execute);const DWORD error=launched?0:GetLastError();if(execute.hProcess)CloseHandle(execute.hProcess);
+        const BOOL launched=ShellExecuteExW(&execute);const DWORD error=launched?0:GetLastError();
         launchPending=false;
-        if(launched)Note(L"Viewer started. Complete Windows identity confirmation there, then refresh this overview.");
+        if(launched){
+            Note(L"Viewer started. Complete Windows identity confirmation there. This overview will refresh briefly while it connects.");
+            launchedViewer.value=execute.hProcess;execute.hProcess=nullptr;
+            if(launchedViewer.value){
+                launchedAt=GetTickCount64();launchedPid=GetProcessId(launchedViewer.value);launchedCreation=Creation(launchedViewer.value);
+                launchedParent=observation.facts.session.caller.value;launchedChild=decision.action==Action::ResumeDesktop?decision.child:MAXDWORD;
+                watchingLaunch=SetTimer(window,LaunchTimer,1500,nullptr)!=0;
+                if(!watchingLaunch)FinishLaunch(launch::Result::Unavailable);
+            }else Note(L"The launch returned no process handle. Use Refresh to check its state.");
+        }
         else Note(error==ERROR_CANCELLED?L"Opening was cancelled. Existing desktops were left alone.":L"Windows could not start the viewer. Error "+std::to_wstring(error)+L".");
+        if(execute.hProcess)CloseHandle(execute.hProcess);
         Refresh();Layout();
     }
     void Fill(HDC dc,RECT rect,COLORREF color)const {HBRUSH brush=CreateSolidBrush(color);FillRect(dc,&rect,brush);DeleteObject(brush);}
@@ -293,6 +337,7 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp){
         else if(id==RefreshButton)app->Refresh();else if(id==OpenButton)app->Open();
         else if(id==GuideButton)ShellExecuteW(window,L"open",L"https://github.com/kazah-png/RETSAR/blob/main/docs/DESKTOP.md",nullptr,nullptr,SW_SHOWNORMAL);return 0;}
     case RefreshReady:app->Accept();return 0;
+    case WM_TIMER:if(wp==LaunchTimer)app->ObserveLaunch(false);return 0;
     case WM_SIZE:app->Layout();return 0;
     case WM_DPICHANGED:{app->dpi=HIWORD(wp);const auto* area=reinterpret_cast<const RECT*>(lp);SetWindowPos(window,nullptr,area->left,area->top,area->right-area->left,area->bottom-area->top,SWP_NOZORDER|SWP_NOACTIVATE);app->Fonts();app->Layout();return 0;}
     case WM_GETMINMAXINFO:{auto* info=reinterpret_cast<MINMAXINFO*>(lp);MONITORINFO monitor{sizeof(monitor)};

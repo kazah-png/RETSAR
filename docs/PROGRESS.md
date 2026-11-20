@@ -2,6 +2,16 @@
 
 Progress is organized by capability and evidence. A compiled component, simulated transaction or existing session ID is not recorded as an operational native seat.
 
+## Desktop connection reliability
+
+The console and experimental viewer now share listener classification. `WTSListen` rows remain visible metadata and are not queried for a signed-in user. Other query failures remain blocking; duplicate IDs and listeners masquerading as the parent or requested child are rejected. Injected-API tests cover failure cleanup without querying or changing Windows sessions.
+
+After an explicit viewer launch the console retains the exact launched process handle and samples startup through asynchronous read-only refreshes. Observation stops after a matching active child/viewer is seen, process exit, an observation error, or 90 seconds. Timeout preserves uncertainty and prevents duplicate launch while the process remains unresolved. It never reconnects or terminates a process automatically.
+
+The viewer now distinguishes Windows confirmation, transport connection, sign-in and verified child-desktop observation. Restoration after a connection failure is shown as a stopped connection, not a successful desktop. Keyboard accelerator forwarding guards the entire COM reference lifetime; pending activation notifications survive nested COM dispatch. These corrections do not yet prove application hotkey reliability or physical input exclusivity.
+
+Validation: the complete local C++/CLI suite passed **1,589 checks** with no failures or skipped adversarial branches. A subsequent desktop-only rebuild included four additional launch-observation guard cases: **24 launch checks**, **48 desktop-model checks**, **60 viewer checks**, and all existing child contracts passed. The resulting distinct C++/CLI coverage is **1,593 checks**, not the sum of repeated runs. The separate Python supervisor suite passed **46 tests**. Builds do not open child desktops. The normal console was opened and visually checked against current host observations; its Open action was exercised, with interactive Windows confirmation required before live connection validation could continue. New-session, reconnect and application-keyboard success are not claimed for this revision.
+
 ## General-purpose desktop console and product identity
 
 The [desktop preview CI run](https://github.com/kazah-png/RETSAR/actions/runs/43312642066/job/131512414242) at [`da9491c`](https://github.com/kazah-png/RETSAR/commit/da9491ccc636bcef6d184ba043c0ffd9d08991b6) passed **1,508 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. It successfully packaged and uploaded `RETSAR-desktop-preview-windows-x64`: the console, core CLI, child-session viewer, guide, license and SHA-256 manifest. The artifact is a developer snapshot, not a production installer.

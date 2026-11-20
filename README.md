@@ -74,7 +74,7 @@ For the existing command-line tools:
 
 The interface is organized around desktops, displays and activity. It shows observed state, offers useful next actions and keeps unavailable capabilities explicit. It does not present an application-specific bot panel or imply that a visible monitor has already been assigned to a separate seat.
 
-The native implementation uses the Windows UI stack rather than a bundled web runtime. Refreshes are explicit, and idle repainting and background work are kept bounded. Performance improvements must be measured; no unverified RAM, CPU or FPS savings are advertised. [Product principles](docs/PRODUCT.md) · [Visual system](docs/DESIGN.md).
+The native implementation uses the Windows UI stack rather than a bundled web runtime. Refreshes are explicit except for bounded observation immediately after opening a viewer. Idle repainting and background work are kept bounded. Performance improvements must be measured; no unverified RAM, CPU or FPS savings are advertised. [Product principles](docs/PRODUCT.md) · [Visual system](docs/DESIGN.md).
 
 ## Engineering and verification
 

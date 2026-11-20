@@ -1,5 +1,6 @@
 #pragma once
 #include "child_session_toggle.hpp"
+#include "child_session_inventory.hpp"
 #include <cwchar>
 #include <iterator>
 #include <limits>
@@ -17,27 +18,43 @@ struct Handle {
 struct SessionRow {DWORD id=MAXDWORD;int state=0;bool hasUser=false;};
 struct Inventory {bool valid=false;DWORD error=ERROR_SUCCESS;std::vector<SessionRow> rows;};
 
-Inventory ReadInventory(DWORD caller,DWORD resumeTarget=MAXDWORD) {
+// Injected WTS boundary lets tests cover listener handling without querying
+// Windows sessions. The production wrapper supplies the system functions.
+struct InventoryApi {
+    decltype(&WTSEnumerateSessionsW) enumerate=nullptr;
+    decltype(&WTSQuerySessionInformationW) user=nullptr;
+    decltype(&WTSFreeMemory) release=nullptr;
+    decltype(&GetLastError) error=nullptr;
+};
+Inventory ReadInventoryWithApi(DWORD caller,DWORD resumeTarget,const InventoryApi& api) {
     Inventory result{};
+    if(!api.enumerate||!api.user||!api.release||!api.error){result.error=ERROR_PROC_NOT_FOUND;return result;}
     PWTS_SESSION_INFOW sessions=nullptr;
     DWORD count=0;
-    if(!WTSEnumerateSessionsW(WTS_CURRENT_SERVER_HANDLE,0,1,&sessions,&count)) {
-        result.error=GetLastError();return result;
+    if(!api.enumerate(WTS_CURRENT_SERVER_HANDLE,0,1,&sessions,&count)) {
+        result.error=api.error();return result;
     }
     struct SessionMemory {
-        PWTS_SESSION_INFOW value;
-        ~SessionMemory(){if(value)WTSFreeMemory(value);}
-    } memory{sessions};
+        PWTS_SESSION_INFOW value;decltype(&WTSFreeMemory) release;
+        ~SessionMemory(){if(value)release(value);}
+    } memory{sessions,api.release};
     if(count==0||count>1024||!sessions){result.error=ERROR_INVALID_DATA;return result;}
     bool callerSeen=false,targetSeen=false;
     for(DWORD index=0;index<count;++index) {
         const auto& entry=sessions[index];
-        LPWSTR user=nullptr;DWORD bytes=0;
-        if(!WTSQuerySessionInformationW(WTS_CURRENT_SERVER_HANDLE,entry.SessionId,
-            WTSUserName,&user,&bytes)) {
-            result.error=GetLastError();return result;
+        for(const auto& previous:result.rows)if(previous.id==entry.SessionId){result.error=ERROR_INVALID_DATA;return result;}
+        if(!RequiresUserObservation(static_cast<int>(entry.State))) {
+            if(entry.SessionId==caller||(resumeTarget!=MAXDWORD&&entry.SessionId==resumeTarget)) {
+                result.error=ERROR_INVALID_STATE;return result;
+            }
+            result.rows.push_back({entry.SessionId,static_cast<int>(entry.State),false});
+            continue;
         }
-        struct UserMemory {LPWSTR value;~UserMemory(){if(value)WTSFreeMemory(value);}} userMemory{user};
+        LPWSTR user=nullptr;DWORD bytes=0;
+        const BOOL queried=api.user(WTS_CURRENT_SERVER_HANDLE,entry.SessionId,WTSUserName,&user,&bytes);
+        const DWORD queryError=queried?ERROR_SUCCESS:api.error();
+        struct UserMemory {LPWSTR value;decltype(&WTSFreeMemory) release;~UserMemory(){if(value)release(value);}} userMemory{user,api.release};
+        if(!queried){result.error=queryError;return result;}
         if(!user||bytes<sizeof(wchar_t)||bytes>65536||bytes%sizeof(wchar_t)!=0) {
             result.error=ERROR_INVALID_DATA;return result;
         }
@@ -64,6 +81,9 @@ Inventory ReadInventory(DWORD caller,DWORD resumeTarget=MAXDWORD) {
     if(!callerSeen||(resumeTarget!=MAXDWORD&&!targetSeen)){result.error=ERROR_NOT_FOUND;return result;}
     result.valid=true;
     return result;
+}
+Inventory ReadInventory(DWORD caller,DWORD resumeTarget=MAXDWORD) {
+    return ReadInventoryWithApi(caller,resumeTarget,{&WTSEnumerateSessionsW,&WTSQuerySessionInformationW,&WTSFreeMemory,&GetLastError});
 }
 bool AcceptBaseline(const Snapshot& value) noexcept {
     const bool childAllowed=value.child.attempted&&(

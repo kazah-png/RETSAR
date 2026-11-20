@@ -1,4 +1,5 @@
 #include "../src/lab/child_session_client_mode.hpp"
+#include "../src/lab/child_session_experiment_io.hpp"
 #include <iostream>
 #include <vector>
 
@@ -119,9 +120,66 @@ void InventoryTests(){
     check(!AcceptObservedId(fresh,2,0,original.data(),original.size()),"Session 0 cannot be new-child success");
     check(!AcceptObservedId(fresh,2,MAXDWORD,original.data(),original.size()),"absence sentinel cannot be child success");
 }
+struct InventoryFixture {
+    std::vector<WTS_SESSION_INFOW> rows;
+    std::vector<DWORD> queried;
+    unsigned released=0;
+    DWORD failedId=MAXDWORD;
+    bool failWithBuffer=false;
+    wchar_t signedIn[5]=L"user",empty[1]=L"";
+} fixture;
+BOOL WINAPI EnumerateFixture(HANDLE,DWORD,DWORD,PWTS_SESSION_INFOW* rows,DWORD* count) {
+    *rows=fixture.rows.data();*count=static_cast<DWORD>(fixture.rows.size());return TRUE;
+}
+BOOL WINAPI QueryFixture(HANDLE,DWORD id,WTS_INFO_CLASS kind,LPWSTR* name,DWORD* bytes) {
+    fixture.queried.push_back(id);
+    if(kind!=WTSUserName)return FALSE;
+    *name=(id==2||id==3)?fixture.signedIn:fixture.empty;
+    *bytes=(id==2||id==3)?sizeof(fixture.signedIn):sizeof(fixture.empty);
+    if(id==fixture.failedId){if(!fixture.failWithBuffer)*name=nullptr;return FALSE;}
+    return TRUE;
+}
+void WINAPI ReleaseFixture(PVOID){++fixture.released;}
+DWORD WINAPI ErrorFixture(){return ERROR_ACCESS_DENIED;}
+void InventoryObservationTests(){
+    const experiment::InventoryApi api{&EnumerateFixture,&QueryFixture,&ReleaseFixture,&ErrorFixture};
+    const auto reset=[](){fixture={};fixture.rows={{0,nullptr,WTSDisconnected},{2,nullptr,WTSActive},{65536,nullptr,WTSListen}};};
+    reset();fixture.failedId=65536;
+    auto value=experiment::ReadInventoryWithApi(2,MAXDWORD,api);
+    check(value.valid&&value.rows.size()==3&&value.rows.back().state==WTSListen&&!value.rows.back().hasUser,
+        "listener is retained without inventing a logged-on user");
+    check(fixture.queried==std::vector<DWORD>{0,2}&&fixture.released==3,
+        "listener never calls WTSUserName; applicable buffers and inventory are released");
+    reset();fixture.rows.push_back({3,nullptr,WTSDisconnected});
+    value=experiment::ReadInventoryWithApi(2,3,api);
+    check(value.valid&&fixture.queried==std::vector<DWORD>{0,2,3},"listener does not block verified disconnected-child baseline");
+    reset();fixture.rows[1].State=WTSListen;
+    value=experiment::ReadInventoryWithApi(2,MAXDWORD,api);
+    check(!value.valid&&value.error==ERROR_INVALID_STATE&&fixture.queried==std::vector<DWORD>{0},"listener with parent ID rejects before user query");
+    reset();fixture.rows.push_back({3,nullptr,WTSListen});
+    value=experiment::ReadInventoryWithApi(2,3,api);
+    check(!value.valid&&value.error==ERROR_INVALID_STATE&&fixture.queried==std::vector<DWORD>{0,2},"listener with target ID rejects before user query");
+    reset();fixture.rows.push_back({65536,nullptr,WTSListen});
+    value=experiment::ReadInventoryWithApi(2,MAXDWORD,api);
+    check(!value.valid&&value.error==ERROR_INVALID_DATA,"duplicate listener IDs cannot yield a complete inventory");
+    reset();fixture.failedId=2;
+    value=experiment::ReadInventoryWithApi(2,MAXDWORD,api);
+    check(!value.valid&&value.error==ERROR_ACCESS_DENIED,"failed applicable query remains blocking and preserves error");
+    reset();fixture.failedId=2;fixture.failWithBuffer=true;
+    value=experiment::ReadInventoryWithApi(2,MAXDWORD,api);
+    check(!value.valid&&fixture.released==3,"unexpected buffer from a failed user query is still released");
+    reset();fixture.rows.back().State=static_cast<WTS_CONNECTSTATE_CLASS>(65536);fixture.failedId=65536;
+    value=experiment::ReadInventoryWithApi(2,MAXDWORD,api);
+    check(!value.valid&&value.error==ERROR_ACCESS_DENIED&&fixture.queried==std::vector<DWORD>{0,2,65536},
+        "unknown state is queried and failure is never treated as a listener");
+    reset();value=experiment::ReadInventoryWithApi(2,MAXDWORD,{});
+    check(!value.valid&&value.error==ERROR_PROC_NOT_FOUND&&fixture.queried.empty()&&fixture.released==0,
+        "incomplete API table cannot observe or admit inventory");
+}
+
 }
 int main(){
-    ArgsTests();SnapshotTests();InventoryTests();
+    ArgsTests();SnapshotTests();InventoryTests();InventoryObservationTests();
     std::cout<<"Child session client mode: "<<passed<<" passed, "<<failed<<" failed; pure fixtures only, no Windows queries or connection.\n";
     return failed?1:0;
 }

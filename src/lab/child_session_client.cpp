@@ -2,6 +2,7 @@
 #include "child_session_activex.hpp"
 #include "child_session_client_mode.hpp"
 #include "child_session_client_diagnostics.hpp"
+#include "child_session_viewer_state.hpp"
 #include <algorithm>
 #include <iostream>
 
@@ -21,6 +22,7 @@ struct App {
     bool enableAttempted=false,restoreAttempted=false,restored=false,finalBaselineRestored=false;
     bool connectAttempted=false,childPropertyVerified=false;
     bool connected=false,loggedIn=false,disconnected=false;
+    bool connectingEvent=false,authenticationPrompt=false,residualChild=false;
     bool observed=false,closing=false,finished=false,journalFailed=false;
     bool initializing=true,stopRequested=false,cleanupStarted=false,userCloseRequested=false;
     unsigned outboundDepth=0;
@@ -71,8 +73,14 @@ struct App {
     RECT Header()const noexcept{RECT r{};if(window)GetClientRect(window,&r);r.bottom=site.headerHeight;return r;}
     void InvalidateHeader()noexcept{if(window){const RECT r=Header();InvalidateRect(window,&r,FALSE);}}
     void Status(const wchar_t* text)noexcept {
+        if(std::wcscmp(status,text)==0)return;
         wcsncpy_s(status,text,_TRUNCATE);InvalidateHeader();
     }
+    viewer::Presentation Presentation()const noexcept {
+        return viewer::Present({connectAttempted||connectingEvent,authenticationPrompt,connected,
+            loggedIn,observed,closing,finished,finalBaselineRestored,FAILED(failure)||journalFailed,residualChild});
+    }
+    void UpdateStatus()noexcept{Status(Presentation().message);}
     void ConfigureAppearance(UINT value)noexcept {
         dpi=value?value:96;site.headerHeight=Scale(88);
         // Shared icon uses the project's canonical resource; Windows owns its lifetime.
@@ -110,8 +118,7 @@ struct App {
             SetDCBrushColor(dc,RGB(21,30,49));RoundRect(dc,left,Scale(13),right,Scale(43),Scale(12),Scale(12));
             SetDCBrushColor(dc,observed&&!closing&&!finished?RGB(93,228,199):RGB(155,173,206));
             Ellipse(dc,left+Scale(12),Scale(24),left+Scale(19),Scale(31));
-            const wchar_t* phase=finished?(finalBaselineRestored?L"DISCONNECTED":L"NEEDS ATTENTION"):
-                closing?L"DISCONNECTING":observed?L"DESKTOP CONNECTED":connectAttempted?L"CONNECTING":L"PREPARING";
+            const wchar_t* phase=Presentation().badge;
             font(smallFont);SetTextColor(dc,RGB(239,245,255));
             text(phase,{left+Scale(28),Scale(14),right-Scale(8),Scale(42)},DT_LEFT);
             wchar_t sessions[100]{};
@@ -131,11 +138,12 @@ struct App {
     void DisarmPollTimer()noexcept{if(window&&pollTimerArmed)KillTimer(window,PollTimer);pollTimerArmed=false;}
     void NotifyFrameActivation()noexcept {
         if(!frameActivationPending||initializing||closing||finished||cleanupStarted||outboundDepth||!site.active)return;
-        const bool active=frameActive;frameActivationPending=false;
+        const bool active=frameActive;
         // Notify this owned control when its containing frame gains/loses activation.
         // No keyboard hook, global focus change, or remote key injection.
         // https://learn.microsoft.com/windows/win32/api/oleidl/nf-oleidl-ioleinplaceactiveobject-onframewindowactivate
-        const HRESULT hr=NotifyFrameWindow(site.active.value,active?TRUE:FALSE,outboundDepth);
+        const HRESULT hr=NotifyPendingFrameWindow(site.active.value,active?TRUE:FALSE,
+            frameActivationPending,false,outboundDepth);
         Record("FrameWindowActivation",hr,active?1:0,true);
         if(stopRequested||journalFailed)BeginStop(journalFailed?"receipt-write":failureStage,journalFailed?HRESULT_FROM_WIN32(ERROR_WRITE_FAULT):failure);
         else if(frameActivationPending&&window)PostMessageW(window,FrameSyncMessage,0,0);
@@ -159,8 +167,9 @@ struct App {
         }
         // Documented DISPIDs, never event strings or user names.
         // https://learn.microsoft.com/windows/win32/termserv/imstscaxevents-interface
-        if(id==2){app.connected=true;app.Record("OnConnected");}
-        else if(id==3){app.loggedIn=true;app.Record("OnLoginComplete");}
+        if(id==1)app.connectingEvent=true;
+        else if(id==2){app.connected=true;app.Record("OnConnected");}
+        else if(id==3){app.loggedIn=true;app.authenticationPrompt=false;app.Record("OnLoginComplete");}
         else if(id==4) {
             app.disconnected=true;app.Record("OnDisconnected",S_OK,value,present);
             if(!app.closing)app.DeferStop("disconnected",E_FAIL);
@@ -170,6 +179,9 @@ struct App {
             app.Record("fullscreen-request-rejected");
             if(id==5)app.DeferStop("unexpected-fullscreen",E_UNEXPECTED);
         }
+        if(id==18)app.authenticationPrompt=true;
+        else if(id==19)app.authenticationPrompt=false;
+        app.UpdateStatus();
         if(app.journalFailed)app.DeferStop("receipt-write",HRESULT_FROM_WIN32(ERROR_WRITE_FAULT));
         if(app.window)PostMessageW(app.window,StepMessage,0,0);
     }
@@ -262,10 +274,10 @@ struct App {
         if(!Record("connect-intent")||stopRequested)return false;
         start=GetTickCount64();
         const auto connection=ConnectChildOnly(extended.value,dispatch.value,true,true,&stopRequested);
-        connectAttempted=connection.attempted;
+        connectAttempted=connection.attempted;UpdateStatus();
         if(FAILED(Step("connect-gate-child-property",connection.propertyResult)))return false;
         if(!connectAttempted||FAILED(Step("Connect",connection.connectResult)))return false;
-        Status(L"Connecting. Confirm your Windows identity if asked.");
+        UpdateStatus();
         return true;
     }
     bool NewActiveChild(ULONG id)noexcept {
@@ -301,10 +313,10 @@ struct App {
                 observed=true;observedId=current.child.value;DisarmPollTimer();
                 if(request.mode==client::Mode::ResumeChild) {
                     Record("existing-child-resumed",S_OK,static_cast<LONG>(observedId),true);
-                    Status(L"Your desktop is ready. Click inside to use it.");
+                    UpdateStatus();
                 }else {
                     Record("active-child-observed",S_OK,static_cast<LONG>(observedId),true);
-                    Status(L"Your desktop is ready. Click inside to use it.");
+                    UpdateStatus();
                 }
             }
         }
@@ -318,7 +330,7 @@ struct App {
         closing=true;closeStart=GetTickCount64();
         const bool timed=ArmPollTimer();
         if(!timed)Record("disconnect-timer-unavailable",HRESULT_FROM_WIN32(GetLastError()));
-        Status(L"Disconnecting and restoring your previous settings...");Record(stage,reason);
+        UpdateStatus();Record(stage,reason);
         if(connectAttempted&&dispatch) {
             ++outboundDepth;const HRESULT hr=Invoke(dispatch.value,L"Disconnect",DISPATCH_METHOD);--outboundDepth;
             Record("DisconnectOwnControl",hr);
@@ -364,13 +376,8 @@ struct App {
             if(!Append(receipt,out.str()).succeeded)journalFailed=true;
         }catch(...){journalFailed=true;}
         finished=true;DisarmPollTimer();
-        const bool residual=final.child.succeeded&&final.child.value!=MAXDWORD;
-        if(!baselineRestored)Status(L"A setting could not be restored. Check the diagnostic report before retrying.");
-        else if(residual)Status(L"Viewer disconnected. Your desktop may still be running.");
-        else if(observed)Status(L"Viewer disconnected. Your previous settings were restored.");
-        else {
-            Status(L"Connection stopped. Your previous settings were restored. See the diagnostic report.");
-        }
+        residualChild=final.child.succeeded&&final.child.value!=MAXDWORD;
+        UpdateStatus();
         // Destruction is queued outside the COM cleanup stack. User-requested
         // close needs one click; automatic connection failure can show results.
         if(userCloseRequested&&window)PostMessageW(window,WM_CLOSE,0,0);
@@ -542,14 +549,19 @@ int wmain(int argc,wchar_t* argv[]) {
         if(app.stopRequested||FAILED(app.failure))app.BeginStop(app.failureStage,app.failure);
         MSG message{};BOOL messageResult=0;
         while((messageResult=GetMessageW(&message,nullptr,0,0))>0) {
+            // A nested COM message pump can consume FrameSyncMessage while the
+            // outbound guard is held. Drain the retained request at this safe
+            // outer boundary even after the observation timer has stopped.
+            app.NotifyFrameActivation();
             HRESULT translated=S_FALSE;
-            if(KeyboardMessage(message.message)&&app.site.active&&!app.closing&&!app.cleanupStarted&&GetForegroundWindow()==window) {
-                Com<IOleInPlaceActiveObject> held;held.value=app.site.active.value;held->AddRef();
-                ++app.outboundDepth;translated=held->TranslateAccelerator(&message);held.reset();--app.outboundDepth;
+            const bool ownTarget=message.hwnd==window||IsChild(window,message.hwnd);
+            if(KeyboardMessage(message.message)&&ownTarget&&app.site.active&&!app.closing&&
+               !app.cleanupStarted&&GetForegroundWindow()==window) {
+                translated=TranslateOwnedAccelerator(app.site.active.value,&message,app.outboundDepth);
                 if(app.stopRequested&&!app.closing)app.BeginStop(app.failureStage,app.failure);
             }
-            if(translated==S_OK)continue;
-            TranslateMessage(&message);DispatchMessageW(&message);
+            if(translated!=S_OK){TranslateMessage(&message);DispatchMessageW(&message);}
+            app.NotifyFrameActivation();
         }
         if(messageResult<0) {
             const DWORD messageError=GetLastError();

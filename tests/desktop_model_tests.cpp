@@ -32,6 +32,24 @@ int main(){
  variant=resume;variant.designPreview=true;variant.verifiedViewerPresent=true;check(Decide(variant).action==Action::None,"design preview cannot start or focus a viewer");
  check(!CanLaunch({Action::ShowViewer,Availability::AlreadyActive}),"showing an existing viewer is not a session launch");
  check(CanLaunch({Action::ResumeDesktop,Availability::Ready,3}),"resume is an explicit launch action");
+ // Listener classification must not depend on the numeric session ID.
+ for(int state=-1;state<=11;++state)
+     check(RequiresUserObservation(state)==(state!=WTSListen),"only the documented listener state skips user observation");
+ check(RequiresUserObservation(65536),"future WTS state still requires a user query");
+ variant=base;variant.rows.push_back({65536,WTSListen,false});
+ check(Decide(variant).action==Action::CreateDesktop,"preserved listener does not block an otherwise complete new-desktop inventory");
+ variant=resume;variant.rows.push_back({65536,WTSListen,false});
+ check(Decide(variant).action==Action::ResumeDesktop,"preserved listener does not block exact disconnected-child resumption");
+ variant=base;variant.rows[1]={2,WTSListen,false};
+ check(!CanLaunch(Decide(variant)),"a listener cannot stand in for the active parent");
+ variant=resume;variant.rows.back()={3,WTSListen,false};
+ check(!CanLaunch(Decide(variant)),"a listener cannot stand in for the resumable child");
+ variant=base;variant.rows.push_back({65536,WTSListen,false});variant.rows.push_back({65536,WTSListen,false});
+ check(!CanLaunch(Decide(variant)),"duplicate listener identifiers still block launch");
+ variant=base;variant.rows.push_back({65536,WTSListen,false});variant.inventoryComplete=false;
+ check(!CanLaunch(Decide(variant)),"a listener never masks a failed applicable-session query");
+ variant=base;variant.rows.push_back({3,65536,true});
+ check(!CanLaunch(Decide(variant)),"an unfamiliar state with a signed-in user still blocks launch");
  check(BoundedPercent(0)==0&&BoundedPercent(100)==100&&BoundedPercent(MAXDWORD)==100,"out-of-range memory percentage cannot overflow the display");
  std::cout<<"Desktop model: "<<passed<<" passed, "<<failed<<" failed; pure observations only, no Windows query or launch.\n";return failed?1:0;
 }

@@ -1,9 +1,12 @@
 #pragma once
 #include "../lab/child_session_client_mode.hpp"
+#include "../lab/child_session_inventory.hpp"
 #include <vector>
 
 namespace retsar::desktop {
 using SessionRow=seats::lab::child::client::Row;
+using seats::lab::child::RequiresUserObservation;
+
 enum class Action { None, ShowViewer, CreateDesktop, ResumeDesktop };
 enum class Availability { Loading, Ready, ViewerOpen, AlreadyActive, FeatureInUse, MissingComponents, Unknown, UnsupportedContext };
 struct Facts {

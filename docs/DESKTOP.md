@@ -13,7 +13,7 @@ Use Windows x64, the Visual Studio C++ Build Tools and a complete Windows SDK.
 
 `-Desktop` also builds the child-session viewer and runs the inert desktop/child contracts. The build never opens a desktop or asks Windows to create a session. Sources and binaries can stay on D:. The complete `-Test` suite uses a small temporary directory on C: only for the core's existing journal/output path-policy fixtures.
 
-The normal GUI reads session/display metadata asynchronously on startup and when **Refresh** or **F5** is used. It does not watch keys, capture application contents or poll continuously. Opening the console does not alter or close an existing desktop.
+The normal GUI reads session/display metadata asynchronously on startup and when **Refresh** or **F5** is used. After its own viewer launch, it also follows connection startup every 1.5 seconds for at most 90 seconds, then stops observing automatically. It retains the exact process handle while the outcome is unresolved, preventing a duplicate launch; **Refresh** can reconcile the observation later. It does not watch keys, capture application contents or poll continuously. Opening the console does not alter or close an existing desktop.
 
 ## The interface
 
@@ -44,7 +44,11 @@ The viewer renders a normal Windows desktop. Open applications there as you woul
 
 Closing the management console leaves the viewer and applications alone. Closing the experimental viewer disconnects its own connection and restores its original child-session setting; it does **not** log off the child or guarantee that disconnected applications keep running normally. Session termination, crash recovery and unattended reconnect are still being developed. Preserve the private receipt when reporting a connection failure, and remove personal data before sharing any excerpt.
 
-The earlier pilot exposed an F8 activation problem through the viewer. Use the application's own controls when a shortcut does not arrive. The updated viewer's focus notifications still require a dedicated live reconnect test before the shortcut can be called fixed. Do not replace a working connected viewer merely to update its appearance.
+The viewer distinguishes preparation, connection, Windows confirmation, sign-in, desktop verification, connected state and cleanup. A transport connection or completed sign-in alone is never shown as a verified independent desktop. Windows confirmation stays interactive; RETSAR does not enter credentials.
+
+The earlier pilot exposed an F8 activation problem through the viewer. Activation and accelerator forwarding now retain their COM objects inside reentrancy guards, and pending activation is drained after the outer message dispatch. These fixes do not establish that F8 works in every application. Use an application's own controls when a shortcut does not arrive. Do not replace a working connected viewer merely to update it.
+
+The console and viewer retain Windows listener rows as metadata without asking them for a signed-in user. A listener is not a desktop. Failed identity queries on actual sessions still prevent opening; the listener exception cannot hide another signed-in user.
 
 ## Interface preview
 

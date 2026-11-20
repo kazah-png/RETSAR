@@ -66,6 +66,10 @@ try {
   if($LASTEXITCODE -ne 0){throw 'Desktop model test compilation failed.'}
   & "$base\build\RETSAR-desktop-model-tests.exe"
   if($LASTEXITCODE -ne 0){throw 'Desktop model tests failed.'}
+  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\desktop_launch_tests.cpp" "/Fe:$base\build\RETSAR-desktop-launch-tests.exe" /link /SUBSYSTEM:CONSOLE @libs wtsapi32.lib
+  if($LASTEXITCODE -ne 0){throw 'Desktop launch test compilation failed.'}
+  & "$base\build\RETSAR-desktop-launch-tests.exe"
+  if($LASTEXITCODE -ne 0){throw 'Desktop launch tests failed.'}
  }
  if($Lab){
   New-Item -ItemType Directory -Force -Path "$base\dist\lab" | Out-Null
