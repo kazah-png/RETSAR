@@ -1,5 +1,6 @@
 #include "desktop_model.hpp"
 #include "launch_observation.hpp"
+#include "physical_input_inventory.hpp"
 #include <shellapi.h>
 #include <windowsx.h>
 #include <dwmapi.h>
@@ -17,7 +18,7 @@ namespace {
 using namespace retsar::desktop;
 constexpr UINT RefreshReady=WM_APP+41,ActivationRefreshReady=WM_APP+42;
 constexpr UINT_PTR LaunchTimer=72;
-constexpr int NavOverview=1010,NavDisplays=1011,NavActivity=1012,RefreshButton=1020,OpenButton=1021,GuideButton=1022;
+constexpr int NavOverview=1010,NavDisplays=1011,NavActivity=1012,NavDevices=1013,RefreshButton=1020,OpenButton=1021,GuideButton=1022;
 constexpr COLORREF Background=RGB(11,16,32),Sidebar=RGB(8,13,26),Surface=RGB(21,30,49),Border=RGB(39,53,77);
 constexpr COLORREF Accent=RGB(93,228,199),Cyan=RGB(121,207,242),Text=RGB(239,244,252),Muted=RGB(155,173,206),Amber=RGB(240,198,115);
 constexpr wchar_t ReceiptDirectory[]=L"D:\\RETSAR-Lab\\RETSAR\\private";
@@ -25,7 +26,7 @@ struct Handle {HANDLE value=nullptr;~Handle(){if(value&&value!=INVALID_HANDLE_VA
 struct Viewer {HWND window=nullptr;DWORD process=0;ULONGLONG created=0;std::wstring path;};
 struct Display {RECT area{};bool primary=false;};
 struct Observation {
-    Facts facts;Viewer viewer;std::vector<Display> displays;
+    Facts facts;Viewer viewer;std::vector<Display> displays;input::Facts inputs;
     DWORD inventoryError=0,displayError=0,memoryError=0;bool memoryKnown=false;DWORD memoryLoad=0;ULONGLONG memoryTotal=0,memoryAvailable=0;
 };
 struct QueryBox {
@@ -86,12 +87,13 @@ Observation Read(const std::wstring& viewerPath) {
     if(out.displays.empty()&&!out.displayError)out.displayError=ERROR_NOT_FOUND;
     MEMORYSTATUSEX memory{sizeof(memory)};
     if(GlobalMemoryStatusEx(&memory)){out.memoryKnown=true;out.memoryLoad=memory.dwMemoryLoad;out.memoryTotal=memory.ullTotalPhys;out.memoryAvailable=memory.ullAvailPhys;}else out.memoryError=GetLastError();
+    out.inputs=input::Read();
     FindContext context{&viewerPath};EnumWindows(FindViewer,reinterpret_cast<LPARAM>(&context));
     if(context.count==1){out.viewer=std::move(context.result);out.facts.verifiedViewerPresent=true;}
     return out;
 }
 Observation Preview() {
-    Observation out;out.facts.designPreview=true;
+    Observation out;out.facts.designPreview=true;out.inputs=input::SampleFacts();
     auto& s=out.facts.session;s.apiAvailable=true;s.enabled={true,true,0,true};s.caller={true,true,0,2};s.child={true,true,0,3};s.console={true,2};
     out.facts.rows={{2,WTSActive,true},{3,WTSActive,true}};out.facts.inventoryComplete=true;
     out.displays={{{0,0,1920,1080},true},{{1920,0,3840,1080},false}};out.memoryKnown=true;out.memoryLoad=38;out.memoryTotal=16ull*1024*1024*1024;out.memoryAvailable=10ull*1024*1024*1024;return out;
@@ -119,7 +121,7 @@ struct App {
     ActivationRefresh activationRefresh;
     Handle launchedViewer;bool watchingLaunch=false;ULONGLONG launchedAt=0,launchedCreation=0;DWORD launchedPid=0,launchedParent=MAXDWORD,launchedChild=MAXDWORD;
     std::wstring viewerPath;Observation observation;std::shared_ptr<QueryBox> box=std::make_shared<QueryBox>();
-    std::vector<std::wstring> activity;std::array<HWND,6> buttons{};HWND statusLabel=nullptr,detailLabel=nullptr;HBRUSH backgroundBrush=CreateSolidBrush(Background);HFONT title=nullptr,heading=nullptr,body=nullptr,fontSmall=nullptr;BackBuffer buffer;
+    std::vector<std::wstring> activity;std::array<HWND,7> buttons{};HWND statusLabel=nullptr,detailLabel=nullptr;HBRUSH backgroundBrush=CreateSolidBrush(Background);HFONT title=nullptr,heading=nullptr,body=nullptr,fontSmall=nullptr;BackBuffer buffer;
     ~App(){CloseFonts();if(backgroundBrush)DeleteObject(backgroundBrush);std::lock_guard lock(box->mutex);box->closed=true;}
     int P(int value)const noexcept{return MulDiv(value,static_cast<int>(dpi),96);}
     RECT R(int x,int y,int w,int h)const noexcept{return {P(x),P(y),P(x+w),P(y+h)};}
@@ -141,7 +143,9 @@ struct App {
     }
     void Layout(){
         const int w=Width(),h=Height(),actionY=ActionY();
-        MoveWindow(buttons[0],P(18),P(154),P(176),P(44),TRUE);MoveWindow(buttons[1],P(18),P(208),P(176),P(44),TRUE);MoveWindow(buttons[2],P(18),P(262),P(176),P(44),TRUE);
+        const int navTop=h<520?142:154,navStep=h<520?43:54,navHeight=h<520?36:44;
+        MoveWindow(buttons[0],P(18),P(navTop),P(176),P(navHeight),TRUE);MoveWindow(buttons[1],P(18),P(navTop+navStep),P(176),P(navHeight),TRUE);
+        MoveWindow(buttons[6],P(18),P(navTop+2*navStep),P(176),P(navHeight),TRUE);MoveWindow(buttons[2],P(18),P(navTop+3*navStep),P(176),P(navHeight),TRUE);
         MoveWindow(buttons[3],P(w-152),P(Compact()?28:38),P(124),P(38),TRUE);
         MoveWindow(buttons[4],P(240),P(actionY),P(194),P(44),TRUE);ShowWindow(buttons[4],tab==0?SW_SHOW:SW_HIDE);
         MoveWindow(buttons[5],P(18),P(h-82),P(176),P(38),TRUE);
@@ -208,6 +212,7 @@ struct App {
             Note(std::move(detail));
         }
         if(observation.displayError){partial=true;Note(L"Display information unavailable or incomplete. Error "+std::to_wstring(observation.displayError)+L".");}
+        if(!observation.inputs.complete){partial=true;Note(L"Some keyboard or mouse identities could not be verified. Devices shows the incomplete observation.");}
         if(!observation.memoryKnown){partial=true;Note(L"Computer memory information unavailable. Error "+std::to_wstring(observation.memoryError)+L".");}
         if(!launchedViewer.value||partial)Note(partial?L"Refresh finished with unavailable details. See the observations below.":L"Desktop and display information refreshed. No session settings changed.");ObserveLaunch(true);Layout();
     }
@@ -297,6 +302,32 @@ struct App {
         if(observation.displays.size()>static_cast<std::size_t>(index))TextAt(dc,L"Additional screens: "+std::to_wstring(observation.displays.size()-static_cast<std::size_t>(index)),R(240,y,content,24),body,Muted);
         TextAt(dc,L"The desktop viewer can be moved between screens. Exclusive physical monitor and keyboard/mouse assignment is still in development.",R(240,h-116,content,67),body,Muted);
     }
+    void PaintDevices(HDC dc){
+        const int content=Width()-268,h=Height(),tile=(content-18)/2,y=Compact()?126:145;
+        const auto& facts=observation.inputs;const bool shortView=h<600;const int card=shortView?110:142;
+        TextAt(dc,L"Keyboard & mouse",R(240,Compact()?29:43,content-140,42),title,Text);
+        TextAt(dc,L"Check the controls available for a future second physical seat.",R(240,Compact()?80:94,content,24),body,Muted);
+        for(int column=0;column<2;++column){
+            const int x=240+column*(tile+18);Round(dc,R(x,y,tile,card),Surface,Border);
+            TextAt(dc,column?L"Mouse groups":L"Keyboard groups",R(x+22,y+20,tile-44,27),heading,Text);
+            const auto count=column?facts.mouseContainers:facts.keyboardContainers;
+            TextAt(dc,refreshing?L"Checking...":std::to_wstring(count),R(x+22,y+(shortView?48:58),tile-44,shortView?32:42),title,refreshing?Muted:Accent);
+            TextAt(dc,L"Identified USB device groups",R(x+22,y+(shortView?84:111),tile-44,24),fontSmall,Muted);
+        }
+        const int next=y+card+24,detailHeight=shortView?std::max(80,h-next-64):158;
+        Round(dc,R(240,next,content,detailHeight),Surface,Border);
+        const wchar_t* titleText=refreshing?L"Checking your devices":!facts.complete?L"Device information is incomplete":
+            facts.additionalPairObserved?L"Possible extra controls found":L"No spare pair identified";
+        TextAt(dc,titleText,R(262,next+18,content-44,shortView?28:48),heading,Text);
+        const wchar_t* detail=refreshing?L"Reading device identities. Your controls remain available.":!facts.complete?
+            L"Some device identities or connection types could not be verified. No assignments have changed.":facts.additionalPairObserved?
+            L"Some groups may share a device or receiver. Check the actual controls before planning a second physical seat. Physical routing is still in development.":
+            L"Two people need separate controls to use both desks at once. Your existing keyboard and mouse remain available to the main desktop.";
+                if(shortView)detail=refreshing?L"Reading device identities...":!facts.complete?L"Some device identities or connection types remain unverified. No assignments changed.":facts.additionalPairObserved?L"Groups may share a device or receiver. Check the physical controls; none are assigned.":L"Separate physical controls are required for simultaneous use by two people.";
+        TextAt(dc,detail,R(262,next+(shortView?54:69),content-44,shortView?detailHeight-62:72),body,Muted);
+        if(h>=700)TextAt(dc,L"Devices with several input collections are grouped together. The count does not prove exclusive routing or identify which controls you are using.",R(240,next+180,content,65),body,Muted);
+        if(!shortView)TextAt(dc,L"Physical assignment is not available in this preview. The independent desktop viewer remains available from Overview.",R(240,h-108,content,55),fontSmall,Muted);
+    }
     void PaintActivity(HDC dc){
         const int content=Width()-268,h=Height();TextAt(dc,L"Activity",R(240,Compact()?29:43,content-140,42),title,Text);
         TextAt(dc,L"Local observations on return, refresh and bounded startup checks.",R(240,Compact()?80:94,content,24),body,Muted);
@@ -312,12 +343,12 @@ struct App {
         const int w=Width(),h=Height();Fill(dc,R(0,0,w,h),Background);Fill(dc,R(0,0,212,h),Sidebar);Fill(dc,R(211,0,1,h),Border);
         Logo(dc,24,30,34);TextAt(dc,L"RETSAR",R(72,28,125,30),heading,Text);TextAt(dc,L"DESKTOP",R(72,58,125,20),fontSmall,Muted);
         Chip(dc,preview?L"DESIGN PREVIEW":L"RESEARCH PREVIEW",18,104,176,preview?Amber:Accent);
-        if(h>=500)TextAt(dc,L"One computer.\nMore room to work.",R(24,h-166,166,55),body,Muted);
-        if(tab==0)PaintOverview(dc);else if(tab==1)PaintDisplays(dc);else PaintActivity(dc);
+        if(h>=620)TextAt(dc,L"One computer.\nMore room to work.",R(24,h-166,166,55),body,Muted);
+        if(tab==0)PaintOverview(dc);else if(tab==1)PaintDisplays(dc);else if(tab==3)PaintDevices(dc);else PaintActivity(dc);
         Fill(dc,R(240,h-42,w-268,1),Border);TextAt(dc,preview?L"Sample data only":refreshing?L"Refreshing...":L"Read-only overview  \u00b7  Updates when you return",R(240,h-26,w-268,18),fontSmall,Muted);
     }
     void DrawButton(const DRAWITEMSTRUCT& item){
-        const bool selected=(item.CtlID>=NavOverview&&item.CtlID<=NavActivity&&static_cast<int>(item.CtlID-NavOverview)==tab);
+        const bool selected=(item.CtlID>=NavOverview&&item.CtlID<=NavDevices&&static_cast<int>(item.CtlID-NavOverview)==tab);
         const bool primary=item.CtlID==OpenButton;const bool disabled=(item.itemState&ODS_DISABLED)!=0;
         const COLORREF fill=disabled?Surface:primary?Accent:selected?Surface:Sidebar;
         Fill(item.hDC,item.rcItem,(item.CtlID==OpenButton||item.CtlID==RefreshButton)?Background:Sidebar);
@@ -334,13 +365,13 @@ LRESULT CALLBACK WindowProc(HWND window,UINT message,WPARAM wp,LPARAM lp){
     if(!app)return DefWindowProcW(window,message,wp,lp);
     switch(message){
     case WM_CREATE:{app->dpi=GetDpiForWindow(window);if(!app->dpi)app->dpi=96;const BOOL dark=TRUE;DwmSetWindowAttribute(window,DWMWA_USE_IMMERSIVE_DARK_MODE,&dark,sizeof(dark));
-        constexpr int ids[]={NavOverview,NavDisplays,NavActivity,RefreshButton,OpenButton,GuideButton};
-        constexpr const wchar_t* captions[]={L"Overview",L"Displays",L"Activity",L"Refresh  \u00b7  F5",L"Open desktop",L"Project guide"};
-        for(std::size_t i=0;i<app->buttons.size();++i)app->buttons[i]=CreateWindowExW(0,L"BUTTON",captions[i],WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW,0,0,1,1,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(ids[i])),app->instance,nullptr);
+        constexpr int ids[]={NavOverview,NavDisplays,NavActivity,RefreshButton,OpenButton,GuideButton,NavDevices};
+        constexpr const wchar_t* captions[]={L"Overview",L"Displays",L"Activity",L"Refresh  \u00b7  F5",L"Open desktop",L"Project guide",L"Devices"};
+        for(const auto i:{0u,1u,6u,2u,3u,4u,5u})app->buttons[i]=CreateWindowExW(0,L"BUTTON",captions[i],WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW,0,0,1,1,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(ids[i])),app->instance,nullptr);
         app->statusLabel=CreateWindowW(L"STATIC",L"",WS_CHILD|WS_VISIBLE|SS_LEFT,0,0,1,1,window,nullptr,app->instance,nullptr);
         app->detailLabel=CreateWindowW(L"STATIC",L"",WS_CHILD|WS_VISIBLE|SS_LEFT,0,0,1,1,window,nullptr,app->instance,nullptr);
         app->Fonts();app->Layout();if(app->preview){app->observation=Preview();app->Note(L"Design preview uses sample data. No session or device inventory was collected.");app->Layout();}else app->Refresh();return 0;}
-    case WM_COMMAND:{const int id=LOWORD(wp);if(id>=NavOverview&&id<=NavActivity){app->tab=id-NavOverview;app->Layout();}
+    case WM_COMMAND:{const int id=LOWORD(wp);if(id>=NavOverview&&id<=NavDevices){app->tab=id-NavOverview;app->Layout();}
         else if(id==RefreshButton)app->Refresh();else if(id==OpenButton)app->Open();
         else if(id==GuideButton)ShellExecuteW(window,L"open",L"https://github.com/kazah-png/RETSAR/blob/main/docs/DESKTOP.md",nullptr,nullptr,SW_SHOWNORMAL);return 0;}
     case WM_ACTIVATE:

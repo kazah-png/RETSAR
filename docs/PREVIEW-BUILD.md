@@ -16,8 +16,12 @@ The preview has demonstrated native child-desktop creation/resumption and a supe
 
 For an eligible disconnected child, **Resume desktop** chooses the mode matching the observed original setting. Ordinary resumption attempts to restore a disabled baseline on close; enabled-baseline resumption preserves the enabled setting without changing it. A completed cleanup receipt and readback are required to verify either outcome. This is not a guarantee of crash recovery or completion of an earlier interrupted cleanup.
 
-A supervised enabled-baseline trial resumed the existing Notepad desktop with Fit to window visibly active. The user confirmed the sizing buttons and an additional close/resume cycle retaining Notepad; the inspected receipts did not corroborate those additional actions, so no verified close-cycle result is claimed. This does not establish prolonged stability or compatibility on other hosts.
+A supervised enabled-baseline trial resumed the existing Notepad desktop with Fit to window visibly active. The user confirmed the sizing buttons and an additional close/resume cycle retaining Notepad; a later receipt inspection corroborated the first resumed viewer closing while preserving its enabled baseline without a setting mutation or restore attempt. No sizing-toggle or second-resumption event was present; those manual actions remain user-reported. This does not establish prolonged stability or compatibility on other hosts.
 
 For a clearly labelled interface demonstration without session or device inventory, run `RETSAR-Desktop.exe --preview`.
 
 [Source and verified progress](https://github.com/kazah-png/RETSAR) · [MIT license](https://github.com/kazah-png/RETSAR/blob/main/LICENSE)
+
+## Physical-resource observations
+
+The console includes a **Devices** page with anonymous keyboard/mouse group counts. It does not assign or intercept devices. The package also includes `lab/RETSAR-physical-display-probe.exe`; `--status` reads exclusive-output eligibility without acquiring a display. Normal monitors are ineligible for that specialized-display route. Kernel input-adapter binaries are deliberately excluded from this package: the source-only laboratory component is not installed or enabled by opening the preview. [Physical-seat scope](https://github.com/kazah-png/RETSAR/blob/main/docs/PHYSICAL-SEAT.md).

@@ -1,4 +1,4 @@
-param([switch]$Test,[switch]$Lab,[switch]$RdsLab,[switch]$RdsTests,[switch]$ChildSessionLab,[switch]$Desktop)
+param([switch]$Test,[switch]$Lab,[switch]$RdsLab,[switch]$RdsTests,[switch]$ChildSessionLab,[switch]$Desktop,[switch]$PhysicalSeatLab)
 $ErrorActionPreference='Stop'
 if($RdsTests -and !$RdsLab){throw '-RdsTests requires -RdsLab.'}
 $base=$PSScriptRoot
@@ -55,7 +55,7 @@ try {
   if($LASTEXITCODE -ne 0){throw 'RETSAR application icon resource compilation failed.'}
  }
  if($Desktop){
-  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\src\desktop\main.cpp" "$base\build\RETSAR-brand.res" "/Fe:$base\dist\RETSAR-Desktop.exe" /link /SUBSYSTEM:WINDOWS /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\desktop\desktop.manifest" @libs user32.lib gdi32.lib wtsapi32.lib shell32.lib ole32.lib advapi32.lib dwmapi.lib
+  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\src\desktop\main.cpp" "$base\build\RETSAR-brand.res" "/Fe:$base\dist\RETSAR-Desktop.exe" /link /SUBSYSTEM:WINDOWS /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\desktop\desktop.manifest" @libs user32.lib gdi32.lib wtsapi32.lib shell32.lib ole32.lib advapi32.lib dwmapi.lib setupapi.lib cfgmgr32.lib
   if($LASTEXITCODE -ne 0){throw 'Desktop console compilation failed.'}
   # Inert help only; the build never opens the GUI or creates a desktop.
   & "$base\dist\RETSAR-Desktop.exe" --help | Out-Host
@@ -70,6 +70,26 @@ try {
   if($LASTEXITCODE -ne 0){throw 'Desktop launch test compilation failed.'}
   & "$base\build\RETSAR-desktop-launch-tests.exe"
   if($LASTEXITCODE -ne 0){throw 'Desktop launch tests failed.'}
+ }
+ if($PhysicalSeatLab){
+  $cppwinrt=Join-Path $sdk "Include\$ver\cppwinrt"
+  if(!(Test-Path -LiteralPath (Join-Path $cppwinrt 'winrt\Windows.Devices.Display.Core.h'))){throw 'Physical display diagnostics require the Windows SDK C++/WinRT headers.'}
+  New-Item -ItemType Directory -Force -Path "$base\dist\lab" | Out-Null
+  & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "/I$cppwinrt" "$base\src\lab\physical_display_probe.cpp" "/Fe:$base\dist\lab\RETSAR-physical-display-probe.exe" /link /SUBSYSTEM:CONSOLE /MANIFEST:EMBED "/MANIFESTINPUT:$base\src\app.manifest" @libs windowsapp.lib
+  if($LASTEXITCODE -ne 0){throw 'Physical display diagnostic compilation failed.'}
+  & "$base\dist\lab\RETSAR-physical-display-probe.exe" --help
+  if($LASTEXITCODE -ne 0){throw 'Physical display inert help failed.'}
+ }
+ if($Test -or $Desktop -or $PhysicalSeatLab){
+  foreach($contract in @('physical_display','physical_input_inventory','physical_input_router')){
+   & "$vc\bin\Hostx64\x64\cl.exe" /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /O2 /MT @inc "$base\tests\${contract}_tests.cpp" "/Fe:$base\build\RETSAR-${contract}-tests.exe" /link /SUBSYSTEM:CONSOLE @libs user32.lib setupapi.lib cfgmgr32.lib
+   if($LASTEXITCODE -ne 0){throw "Physical resource test compilation failed: $contract"}
+   & "$base\build\RETSAR-${contract}-tests.exe"
+   if($LASTEXITCODE -ne 0){throw "Physical resource tests failed: $contract"}
+  }
+  $displayFixture=& "$base\build\RETSAR-physical_display-tests.exe" --json-fixture | ConvertFrom-Json
+  if($displayFixture.schema -ne 'retsar.physical-display-status.v1' -or $displayFixture.physicalSeatVerified -ne $false){throw 'Display fixture JSON contract failed.'}
+  Write-Output 'PASS JSON physical display fixture; no display queries or assignments.'
  }
  if($Lab){
   New-Item -ItemType Directory -Force -Path "$base\dist\lab" | Out-Null

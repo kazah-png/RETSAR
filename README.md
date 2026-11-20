@@ -29,7 +29,7 @@ RETSAR has opened and resumed a real native Windows child desktop on the tested 
 
 | Area | Available now | Still to prove or complete |
 | --- | --- | --- |
-| **RETSAR Desktop** | Native management console with Overview, Displays and Activity views; read-only refresh and guarded viewer actions | Complete desktop lifecycle and device assignment |
+| **RETSAR Desktop** | Native management console with Overview, Displays, Devices and Activity views; read-only refresh and guarded viewer actions | Complete desktop lifecycle and device assignment |
 | **Desktop viewer** | Actual child-session creation and interactive resumption on the tested host | Unattended reconnect, reliable keyboard shortcuts and broader Windows coverage |
 | **Input** | Exact synthetic mouse/key receipt in the child; a supervised application pilot | Exclusive physical keyboard/mouse ownership and continuous isolation |
 | **Engine** | Validated plans, reservations, durable receipts and conservative recovery; simulated effects in tests | Integration with a production native provider |
@@ -72,7 +72,7 @@ For the existing command-line tools:
 *Native Windows interface running in `--preview` mode. The screenshot contains illustrative sample data, not a live desktop status claim.*
 
 
-The interface is organized around desktops, displays and activity. It shows observed state, offers useful next actions and keeps unavailable capabilities explicit. It does not present an application-specific bot panel or imply that a visible monitor has already been assigned to a separate seat.
+The interface is organized around desktops, displays, devices and activity. It shows observed state, offers useful next actions and keeps unavailable capabilities explicit. It does not present an application-specific bot panel or imply that a visible monitor has already been assigned to a separate seat.
 
 The native implementation uses the Windows UI stack rather than a bundled web runtime. The console refreshes when you return to it, on explicit request, and for a bounded interval immediately after opening a viewer. Idle repainting and background work are kept bounded. Performance improvements must be measured; no unverified RAM, CPU or FPS savings are advertised. [Product principles](docs/PRODUCT.md) · [Visual system](docs/DESIGN.md).
 
@@ -89,6 +89,7 @@ The core records intent before changes, associates resource receipts with their 
 | [Architecture](docs/ARCHITECTURE.md) | Core boundaries, ownership and recovery |
 | [Child desktops](docs/CHILD-SESSIONS.md) | Connection, resumption and observed limits |
 | [Input and application pilot](docs/CHILD-SESSION-INPUT.md) | Input correlation, parent observation and application evidence |
+| [Physical displays and input](docs/PHYSICAL-SEAT.md) | Hardware observations, exclusive-output prerequisites and input-routing work |
 | [Native backend research](docs/NATIVE-BACKEND.md) | Physical-seat requirements and candidate mechanisms |
 | [Laboratory](lab/README.md) | Isolated experiments and reproducible evidence |
 | [Roadmap](docs/ROADMAP.md) | Capability gates and outstanding work |

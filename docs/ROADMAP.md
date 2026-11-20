@@ -40,6 +40,8 @@ A completed foundation does not amount to a complete physical seat. Native child
 
 **Acceptance criterion:** an isolated experiment creates and removes a real second seat, preserves the first, and proves which run owns each resource. Launching a process in another session or displaying a captured image does not satisfy this criterion.
 
+Read-only physical-output eligibility and grouped input-device observations, plus an inert input-routing policy and pass-through driver adapter, are described in [Physical displays and input](PHYSICAL-SEAT.md). These components do not complete assignment or physical-seat acceptance.
+
 The [native backend investigation](NATIVE-BACKEND.md) separates protocol research from this physical-seat requirement. The [observed child desktop](CHILD-SESSIONS.md) establishes one logical-session mechanism on the tested host; it does not complete P0.
 
 ## P1 · Integrate the Windows provider
