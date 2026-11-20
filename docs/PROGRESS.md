@@ -4,6 +4,8 @@ Progress is organized by capability and evidence. A compiled component, simulate
 
 ## Desktop fit and recovery presentation
 
+[Public Windows CI](https://github.com/kazah-png/RETSAR/actions/runs/44774556188/job/136420774182) at [`7840e89`](https://github.com/kazah-png/RETSAR/commit/7840e89f4c50fab5b266dd5ff11e3534d9295011) passed **1,708 C++/CLI checks, 46 Python tests and 220 inert PowerShell checks**, with no failures or skipped adversarial branches. It generated the downloadable `RETSAR-desktop-preview-windows-x64` artifact. These automated checks validate the tested contracts; supervised connection evidence is recorded separately below.
+
 The staged viewer requests client-side **Fit to window** on startup and offers **Actual size / Fit desktop** in its header. It verifies the Boolean mode returned by the control; a failed or ambiguous readback is not shown as successful fitting. Display-setting errors are nonfatal to the connection. The child desktop remains configured at 1024×768, and changing presentation does not reconnect the desktop or reposition its application windows. The display-setting helper retains its COM references inside the outbound-call guard, including reentrant reference and dispatch callbacks.
 
 The console now refreshes its read-only observations when the user returns to it. Repeated activation events are coalesced, work is deferred while another refresh or launch is busy, and no idle polling loop or automatic reconnect is introduced. An eligible disconnected child is presented as **Ready to resume**, distinct from a new desktop that is ready to open.
